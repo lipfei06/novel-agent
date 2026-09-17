@@ -1,0 +1,18 @@
+id: literary
+name: 传统长篇小说
+target_word_count: 150000
+default_volumes: 3
+chapters_per_volume: 20
+words_per_chapter: 2500
+world_requirements:
+  - 时代背景与社会制度
+  - 人物群像与社会关系
+  - 空间/场景（地域与阶层）
+red_lines:
+  - 明显的史实硬伤
+  - 人物行为动机缺乏自洽
+style_preset:
+  pace: "慢节奏，重氛围与心理"
+  dialogue_ratio: 0.3
+  show_vs_tell: 0.7
+  hook_frequency: "以章节情绪收束为主"

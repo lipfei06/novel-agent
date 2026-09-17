@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+web/dist/
+
+# 运行时产物（共享库与项目数据）
+output/
+data/
+
+# 密钥与环境
+.env
+
+# 日志与临时文件
+*.log
+*.tmp
+
+# IDE
+.idea/
+.vscode/

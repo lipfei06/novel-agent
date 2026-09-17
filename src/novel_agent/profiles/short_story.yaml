@@ -1,0 +1,18 @@
+id: short_story
+name: 短篇/中篇
+target_word_count: 15000
+default_volumes: 1
+chapters_per_volume: 6
+words_per_chapter: 2500
+world_requirements:
+  - 核心场景设定
+  - 人物动机
+  - 一个强转折或情感落点
+red_lines:
+  - 拖沓冗余
+  - 结尾乏力
+style_preset:
+  pace: "精炼，单线推进"
+  dialogue_ratio: 0.35
+  show_vs_tell: 0.6
+  hook_frequency: "开篇即抓人，结尾有力"

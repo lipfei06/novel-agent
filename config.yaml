@@ -1,0 +1,60 @@
+# 全局共享配置（M1 骨架后启用；M0 仅写作基础库，无需 LLM 即可离线跑通）
+genre: webnovel                      # 默认题材（也可按项目指定）
+
+projects:
+  root: "output/projects"            # 每本小说：output/projects/<pid>/
+  data_root: "data/projects"         # 每本独立：记忆/向量/图谱/checkpoint
+
+llm:
+  # DeepSeek OpenAI 兼容接口。key 填在项目根目录 .env 的 DEEPSEEK_API_KEY
+  # 离线测试模式：启动前设 NOVEL_ENGINE_MOCK=1 则不调用 AI
+  # max_tokens 是单次输出上限：writer 必须 ≥8192，否则长章会被截断/提前收尾
+  creative: { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.8, max_tokens: 8192 }
+  writer:   { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.9, max_tokens: 8192 }
+  editor:   { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.3, max_tokens: 4096 }
+  cheap:    { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.7, max_tokens: 4096 }
+
+memory:
+  short_window: 5                   # 近期记忆窗口（最近 N 章全文注入）
+  summary_every: 1                  # 每章都摘要
+  vector: { backend: "chroma" }     # 实际索引路径按项目解析 data/projects/<pid>/
+  # 可选：接入 OpenAI 兼容 /embeddings 后，长期记忆检索从本地 bigram 升级为语义向量。
+  # 未配置（model 留空）时自动回退 bigram。DeepSeek 不提供 embeddings，可接任意兼容服务商。
+  # vector:
+  #   embedding: { model: "embedding-3", base_url: "https://api.example.com/v1", api_key_env: "EMBEDDING_API_KEY" }
+
+consistency:
+  max_auto_fix: 3                   # stage6 自动修复轮数上限，超限转人工
+
+cost:
+  # 估价（USD / 1M tokens：输入, 输出）。按模型名匹配，未命中用 default_price。
+  default_price: [0.14, 0.28]
+  prices:
+    deepseek-chat: [0.14, 0.28]
+
+writer:
+  # 智能研究模式：写手在写作前自主决定查询状态卡/伏笔账本/角色档案/前文片段，
+  # 写完后提交记忆更新提案。开启后单章成本约 ×1.5，连贯性收益集中在长程细节。
+  agentic_research: false
+  max_research_rounds: 3   # 研究循环轮数上限
+
+rag:
+  top_k: 6
+  dense_weight: 0.65
+  sparse_weight: 0.35
+  temporal_top_k: 4
+
+token_budget:                       # 每环节 prompt 上限（字符级保护；DeepSeek 支持长上下文）
+  write: 40000                      # 5 章全文窗口 + RAG + 指令的余量
+  edit: 6000
+  check: 12000
+  editorial: 16000
+  export: 2000
+
+library:                            # 写作基础库（M0 启用）
+  base_dir: "output/libraries"      # 性格库/工具库 JSON
+  index_backend: "offline-keyword"  # M0: 离线关键词；M4: 切换向量
+  personality_top_k: 3              # 人物设定/写作时引用条数
+  tool_top_k: 3                     # 章级技法引用条数
+
+export: { epub: false, pandoc_path: "" }

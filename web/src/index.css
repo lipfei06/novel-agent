@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: 250 250 249; /* #fafaf9 */
+  --foreground: 24 24 27; /* #18181b */
+  --card: 255 255 255;
+  --border: 231 229 228; /* #e7e5e4 */
+  --primary: 87 83 78; /* #57534e */
+  --muted: 120 113 108; /* #78716c */
+  --accent: 168 162 158; /* #a8a29e */
+}
+
+.dark {
+  color-scheme: dark;
+  --background: 24 24 27; /* #18181b */
+  --foreground: 244 244 245; /* #f4f4f5 */
+  --card: 32 32 36;
+  --border: 39 39 42; /* #27272a */
+  --primary: 168 162 158; /* #a8a29e */
+  --muted: 161 161 170; /* #a1a1aa */
+  --accent: 82 82 91; /* #52525b */
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .card {
+    @apply bg-card border border-border rounded shadow-card;
+  }
+  .chat-md > :first-child { margin-top: 0; }
+  .chat-md > :last-child { margin-bottom: 0; }
+  .chat-md p { margin: 0.4em 0; }
+  .chat-md strong { @apply font-semibold; }
+  .chat-md h1, .chat-md h2, .chat-md h3 {
+    @apply font-semibold mt-3 mb-1;
+  }
+  .chat-md h1 { font-size: 1.1em; }
+  .chat-md h2 { font-size: 1.05em; }
+  .chat-md h3 { font-size: 1em; }
+  .chat-md ul, .chat-md ol { @apply pl-5 my-1; }
+  .chat-md ul { list-style: disc; }
+  .chat-md ol { list-style: decimal; }
+  .chat-md li { margin: 0.2em 0; }
+  .chat-md code {
+    @apply bg-black/5 dark:bg-white/10 rounded px-1 py-0.5 text-[0.9em];
+  }
+  .btn-primary {
+    @apply bg-primary text-white rounded px-4 py-2 text-sm font-medium
+      hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply rounded px-3 py-1.5 text-sm text-muted hover:text-foreground
+      hover:bg-black/5 transition dark:hover:bg-white/10;
+  }
+  .input {
+    @apply w-full rounded border border-border bg-card px-3 py-2 text-sm
+      outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary/40;
+  }
+}

@@ -1,0 +1,19 @@
+id: webnovel
+name: 网文长篇
+target_word_count: 1000000
+default_volumes: 6
+chapters_per_volume: 60
+words_per_chapter: 2500
+world_requirements:
+  - 力量体系 / 升级体系
+  - 势力格局与阵营
+  - 地理与地域分布
+  - 历史大事与时间线
+red_lines:
+  - 违反平台合规的敏感内容
+  - 明显的设定前后矛盾
+style_preset:
+  pace: "快节奏，多事件密度"
+  dialogue_ratio: 0.45
+  show_vs_tell: 0.6
+  hook_frequency: "每章结尾留钩子"
