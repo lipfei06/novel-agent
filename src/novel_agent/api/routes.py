@@ -457,7 +457,12 @@ def _build_writing_context(values: dict, packet, cfg: Config, root: Path, projec
         ][:3]
     seeds = [s for s in seeds if s]
     ch = int(packet.chapter or 0)
-    rag_context = retrieve(seeds, long_term, graph, top_k=int(cfg.rag.get("top_k", 4)), current_chapter=ch)
+    rag_context = retrieve(
+        seeds, long_term, graph,
+        top_k=int(cfg.rag.get("top_k", 4)),
+        current_vol=vol, current_chapter=ch,
+        annotate=True,
+    )
     return memory_context, rag_context
 
 
@@ -496,8 +501,9 @@ def delete_saved_chapter(project_id: str, vol: int, ch: int, request: Request) -
     """删除已保存的章节（仅限全书最新一章）。
 
     删除中间章节会导致后续编号错位、短期记忆窗口与摘要出现断层，
-    因此只允许回退最新一章；被删章节的摘要同步移除，
-    长期向量与时序图谱不回滚（无章节归属标记，残留只影响少量召回噪声）。
+    因此只允许回退最新一章。删除时同步回滚：中期摘要、长期向量（按
+    章节 meta 精准移除）、时序图谱（按 vol_ch 移除该章边）。无 meta 的
+    旧格式向量块无法定位，不参与回滚（残留仅为少量召回噪声）。
     """
     from novel_agent.logutil import get_logger
     from novel_agent.types import Chapter
@@ -538,16 +544,27 @@ def delete_saved_chapter(project_id: str, vol: int, ch: int, request: Request) -
         updates["writer_packets"] = packets
     runtime.graph.update_state(runtime.thread, updates)
 
-    # 同步移除该章的中期摘要（长期向量/图谱不回滚）
+    # 同步回滚：中期摘要 + 长期向量（按章节 meta）+ 时序图谱（按 vol_ch）
     try:
-        from novel_agent.memory import MidTermMemory
+        from novel_agent.logutil import get_logger
+        from novel_agent.llm import get_embedder
+        from novel_agent.memory import LongTermMemory, MidTermMemory
+        from novel_agent.rag import TemporalGraph
 
         paths = ProjectPaths(request.app.state.root, project_id)
         MidTermMemory(paths.memory_dir / "mid_term.json").remove(vol, ch)
+        _, vec_p, graph_p = _mem_paths(request.app.state.root, project_id)
+        cfg = _store(request).load_config(meta.genre)
+        # embed_fn 必须与库 mode 一致，否则模式不匹配会把整库当空库，save 时会清空原向量
+        removed_vec = LongTermMemory(vec_p, embed_fn=get_embedder(cfg)).remove_chapter(vol, ch)
+        removed_edges = TemporalGraph(graph_p).remove_chapter(vol, ch)
+        get_logger().info(
+            f"[delete_chapter] 已回滚第{vol}卷第{ch}章：向量 {removed_vec} 块、图谱 {removed_edges} 边"
+        )
     except Exception as exc:
         from novel_agent.logutil import get_logger
 
-        get_logger().warning("[delete_chapter] 移除章节摘要失败: %s", exc)
+        get_logger().warning("[delete_chapter] 记忆回滚失败: %s", exc)
 
     remaining = len(chapters)
     return {"ok": True, "deleted": key, "remaining_chapters": remaining}
@@ -782,11 +799,17 @@ def project_relations(project_id: str, request: Request) -> dict:
             "status": st.get("status", "active"),
         })
 
-    # 边：时序图谱
+    # 边：时序图谱（chapter 为兼容字段=章号，前端关系图按"第N章"渲染）
     from novel_agent.rag import TemporalGraph
 
     graph = TemporalGraph(_mem_paths(request.app.state.root, project_id)[2])
-    edges = [dict(e) for e in graph.edges if e.get("chapter")]
+    edges = []
+    for e in graph.edges:
+        if not e.get("ch"):
+            continue
+        out = dict(e)
+        out["chapter"] = e.get("ch")
+        edges.append(out)
 
     return {"nodes": nodes, "edges": edges}
 

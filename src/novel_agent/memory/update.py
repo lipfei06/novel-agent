@@ -23,7 +23,11 @@ def update_chapter_memory(
     midterm.add(vol, ch, summary)
 
     scene_texts = [s.get("text", "") for s in chapter.get("scenes", []) if s.get("text")]
-    long_term.add(scene_texts)
+    metas = [
+        {"vol": vol, "ch": ch, "scene": i + 1, "key": f"{vol}_{ch}"}
+        for i in range(len(scene_texts))
+    ]
+    long_term.add(scene_texts, metas)
 
     if graph is not None:
         for c in characters or []:
@@ -31,7 +35,8 @@ def update_chapter_memory(
                 graph.add_node(c["name"])
         relations = extract_relations(chapter, characters or [], cfg)
         edges = [
-            {"a": r["a"], "b": r["b"], "kind": r.get("kind", "互动"), "chapter": ch, "note": (r.get("note") or summary[:30])}
+            {"a": r["a"], "b": r["b"], "kind": r.get("kind", "互动"), "vol": vol, "ch": ch,
+             "note": (r.get("note") or summary[:30])}
             for r in relations
         ]
         if edges:
