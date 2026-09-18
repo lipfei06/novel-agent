@@ -3,7 +3,62 @@ import { api } from '../api/client.js'
 import { runTaskWithProgress } from '../lib/taskStream.js'
 import ChatPanel from '../components/ChatPanel.jsx'
 
-// 章节独立页面：整页查看 + 修改 + 按讨论重新生成（SSE 流式进度）+ AI 改写场景
+// 右栏上部的品牌装饰：羽毛笔 + 摊开的书 + 墨线（纯 SVG，跟随明暗主题）
+function AssistantBrand() {
+  return (
+    <div className="flex flex-col items-center justify-center py-8 select-none pointer-events-none text-primary">
+      <svg width="150" height="120" viewBox="0 0 200 160" fill="none" className="opacity-70">
+        {/* 羽毛笔：笔身 + 羽片 */}
+        <path
+          d="M152 22 C118 46 92 78 74 114 C71 108 70 101 72 94 C88 62 116 38 152 22 Z"
+          fill="currentColor"
+          opacity="0.45"
+        />
+        <path
+          d="M152 22 C126 40 104 64 88 92 M132 34 C112 50 96 68 84 88"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          opacity="0.55"
+        />
+        {/* 笔杆与笔尖 */}
+        <path
+          d="M152 22 C120 48 94 80 76 114 L66 134 L74 112"
+          stroke="currentColor"
+          strokeWidth="2.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {/* 摊开的书 */}
+        <path
+          d="M28 108 C54 94 84 94 100 106 C116 94 146 94 172 108 L172 122 C146 108 116 108 100 120 C84 108 54 108 28 122 Z"
+          fill="currentColor"
+          opacity="0.28"
+        />
+        <path d="M100 106 L100 120" stroke="currentColor" strokeWidth="2" opacity="0.5" />
+        {/* 墨迹线条 */}
+        <path
+          d="M42 142 C72 136 128 136 158 142"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          opacity="0.3"
+        />
+        <path
+          d="M58 150 C82 146 118 146 142 150"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          opacity="0.18"
+        />
+      </svg>
+      <p className="text-sm font-medium text-muted mt-3">novel-agent · 章节助手</p>
+      <p className="text-xs text-muted opacity-70 mt-1">和 AI 聊聊这一章，把灵感聊成正文</p>
+    </div>
+  )
+}
+
+// 章节独立页面：左侧正文内容 + 右侧章节助手面板（并排布局）
 export default function ChapterPage({ projectId, vol, ch, onBack }) {
   const [chapter, setChapter] = useState(null)
   const [editing, setEditing] = useState(false)
@@ -12,7 +67,7 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
   const [error, setError] = useState(null)
   const [regenerating, setRegenerating] = useState(false)
   const [regenProgress, setRegenProgress] = useState(null)
-  const [preview, setPreview] = useState(null) // 重新生成/方案应用 预览
+  const [preview, setPreview] = useState(null)
 
   const load = () =>
     api
@@ -48,7 +103,6 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
     setDraft({ ...draft, scenes: draft.scenes.map((s, idx) => (idx === i ? { ...s, [k]: v } : s)) })
 
   const regenerate = async () => {
-    // 直接按聊天讨论重写本章：聊天框里说怎么改 → 点重新生成即可（SSE 流式进度）
     setRegenerating(true)
     setError(null)
     setRegenProgress({ message: '提交生成任务…', pct: 2 })
@@ -68,10 +122,8 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
     setError(null)
     try {
       if (preview.source === 'proposal') {
-        // 聊天"提出方案"产出的完整章节：确认后覆盖当前章节
         await api.updateChapter(projectId, vol, ch, preview.data)
       } else {
-        // "重新生成"产物：后端已存 pending，走接受端点
         await api.acceptChapter(projectId, vol, ch)
       }
       setPreview(null)
@@ -84,7 +136,7 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
   }
   const rewriteScene = async (scene) => {
     const instruction = window.prompt('改写这个场景：可输入简短提示（如"对话更多些/氛围更压抑"），留空直接确定则由 AI 自由重写', '')
-    if (instruction === null) return // 点取消才中止，留空 = 自由重写
+    if (instruction === null) return
     setSaving(true)
     setError(null)
     try {
@@ -102,7 +154,7 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
     setError(null)
     try {
       await api.deleteSavedChapter(projectId, vol, ch)
-      onBack() // 删除后返回卷列表
+      onBack()
     } catch (e) {
       setError(e.message)
       setSaving(false)
@@ -115,37 +167,37 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
   const scenes = editing && draft ? draft.scenes : chapter.scenes
 
   return (
-    <div className="max-w-5xl mx-auto px-8 py-8">
+    <div className="px-6 py-6">
       {/* 页头 */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <button className="btn-ghost text-xs mb-2" onClick={onBack}>← 返回卷列表</button>
-          <h2 className="text-xl font-semibold">第{ch}章 · {chapter.title}</h2>
-          <p className="text-sm text-muted mt-1">卷{vol} · {scenes?.length ?? 0} 个场景</p>
+          <button className="btn-ghost text-xs mb-1" onClick={onBack}>← 返回卷列表</button>
+          <h2 className="text-lg font-semibold">第{ch}章 · {chapter.title}</h2>
+          <p className="text-xs text-muted mt-0.5">卷{vol} · {scenes?.length ?? 0} 个场景</p>
         </div>
         <div className="flex gap-2">
           <button
-            className="btn-ghost text-red-600 dark:text-red-400"
+            className="btn-ghost text-red-600 dark:text-red-400 text-xs"
             disabled={saving || regenerating}
             onClick={deleteChapter}
             title="删除本章（仅允许删除最新一章）"
           >
-            🗑 删除本章
+            🗑 删除
           </button>
           <button
-            className="btn-ghost"
+            className="btn-ghost text-xs"
             disabled={regenerating}
             onClick={regenerate}
-            title="按下方聊天框中的讨论重写本章；直接点也可，AI 会保持设定与情节骨架"
+            title="按右侧聊天框中的讨论重写本章；直接点也可，AI 会保持设定与情节骨架"
           >
-            {regenerating ? `${regenProgress?.message ?? '重新生成中…'}` : '🔄 按讨论重新生成'}
+            {regenerating ? `${regenProgress?.message ?? '重写中…'}` : '🔄 按讨论重写'}
           </button>
           {!editing ? (
-            <button className="btn-primary" onClick={startEdit}>修改 ✎</button>
+            <button className="btn-primary text-sm" onClick={startEdit}>修改 ✎</button>
           ) : (
             <>
-              <button className="btn-ghost" onClick={() => setEditing(false)}>取消</button>
-              <button className="btn-primary" disabled={saving} onClick={save}>
+              <button className="btn-ghost text-sm" onClick={() => setEditing(false)}>取消</button>
+              <button className="btn-primary text-sm" disabled={saving} onClick={save}>
                 {saving ? '保存中…' : '保存修改'}
               </button>
             </>
@@ -157,9 +209,9 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
 
       {/* 流式重写进度 */}
       {regenProgress && (
-        <div className="card p-4 mb-4">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-sm font-medium">{regenProgress.message}</span>
+        <div className="card p-3 mb-4">
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-xs font-medium">{regenProgress.message}</span>
             <span className="text-xs text-muted">{regenProgress.pct ?? ''}%</span>
           </div>
           <div className="h-1.5 rounded-full bg-black/5 overflow-hidden dark:bg-white/10">
@@ -168,48 +220,48 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
         </div>
       )}
 
-      {/* 场景列表 */}
-      <div className="space-y-4">
-        {(scenes ?? []).map((s, i) =>
-          editing ? (
-            <div key={s.id ?? i} className="card p-5 space-y-3">
-              <input className="input font-medium" value={s.heading ?? ''} placeholder="场景标题" onChange={(e) => setScene(i, 'heading', e.target.value)} />
-              <textarea className="input leading-7 min-h-[160px]" value={s.text ?? ''} onChange={(e) => setScene(i, 'text', e.target.value)} />
-            </div>
-          ) : (
-            <div key={s.id ?? i} className="card p-5">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-semibold text-primary">{s.heading}</p>
-                <button
-                  className="btn-ghost text-xs"
-                  disabled={saving}
-                  title="AI 重写这个场景：可输入少量提示，留空则自由重写（其余场景不动）"
-                  onClick={() => rewriteScene(s)}
-                >
-                  AI 改写
-                </button>
+      {/* 主体：左右分栏（正文 | 章节助手） */}
+      <div className="flex gap-5 items-stretch">
+        {/* 左：正文内容 */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {(scenes ?? []).map((s, i) =>
+            editing ? (
+              <div key={s.id ?? i} className="card p-4 space-y-2.5">
+                <input className="input font-medium text-sm" value={s.heading ?? ''} placeholder="场景标题" onChange={(e) => setScene(i, 'heading', e.target.value)} />
+                <textarea className="input leading-7 min-h-[140px] text-sm" value={s.text ?? ''} onChange={(e) => setScene(i, 'text', e.target.value)} />
               </div>
-              <p className="text-[15px] leading-8 whitespace-pre-wrap">{s.text}</p>
-            </div>
-          ),
-        )}
-      </div>
+            ) : (
+              <div key={s.id ?? i} className="card p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-primary">{s.heading}</p>
+                  <button className="btn-ghost text-xs" disabled={saving} onClick={() => rewriteScene(s)}>
+                    AI 改写
+                  </button>
+                </div>
+                <p className="text-sm leading-7 whitespace-pre-wrap">{s.text}</p>
+              </div>
+            ),
+          )}
+        </div>
 
-      {/* 章节对话助手 */}
-      <div className="mt-8">
-        <ChatPanel
-          projectId={projectId}
-          context={`chapter_${vol}_${ch}`}
-          title="章节助手 · 讨论这章怎么写/怎么改"
-          target="chapter"
-          placeholder="和 AI 讨论本章情节、对白或改写思路…提出方案可直接预览覆盖，或点右上「重新生成」按讨论重写"
-          onApply={async (p) => {
-            if (p && p.scenes) {
-              // 方案不直接覆盖已完成的章节：先进预览，确认后替换
-              setPreview({ data: p, source: 'proposal' })
-            }
-          }}
-        />
+        {/* 右：品牌装饰在上，章节助手面板贴底对齐（整列粘性，滚动时始终可见） */}
+        <div className="w-[45%] max-w-[620px] min-w-[380px] flex-shrink-0 sticky top-6 self-stretch max-h-[calc(100vh-8.5rem)] flex flex-col">
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <AssistantBrand />
+          </div>
+          <ChatPanel
+            projectId={projectId}
+            context={`chapter_${vol}_${ch}`}
+            title="章节助手"
+            target="chapter"
+            placeholder="和 AI 讨论本章情节、对白或改写思路…提出方案可直接预览覆盖，或点上方「重新生成」按讨论重写"
+            onApply={async (p) => {
+              if (p && p.scenes) {
+                setPreview({ data: p, source: 'proposal' })
+              }
+            }}
+          />
+        </div>
       </div>
 
       {/* 重新生成 / 方案应用 预览 */}

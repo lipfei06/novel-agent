@@ -17,11 +17,12 @@ llm:
 memory:
   short_window: 5                   # 近期记忆窗口（最近 N 章全文注入）
   summary_every: 1                  # 每章都摘要
-  vector: { backend: "chroma" }     # 实际索引路径按项目解析 data/projects/<pid>/
-  # 可选：接入 OpenAI 兼容 /embeddings 后，长期记忆检索从本地 bigram 升级为语义向量。
-  # 未配置（model 留空）时自动回退 bigram。DeepSeek 不提供 embeddings，可接任意兼容服务商。
-  # vector:
-  #   embedding: { model: "embedding-3", base_url: "https://api.example.com/v1", api_key_env: "EMBEDDING_API_KEY" }
+  vector:
+    backend: "chroma"               # 实际索引路径按项目解析 data/projects/<pid>/
+    embedding:                      # 语义向量检索（OpenAI 兼容 /embeddings 接口）
+      model: "Pro/BAAI/bge-m3"
+      base_url: "https://api.siliconflow.cn/v1"
+      api_key_env: "SILICONFLOW_API_KEY"
 
 consistency:
   max_auto_fix: 3                   # stage6 自动修复轮数上限，超限转人工

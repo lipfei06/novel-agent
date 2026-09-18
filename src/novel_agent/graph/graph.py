@@ -493,6 +493,18 @@ def _stage7(cfg: Config):
         except Exception as exc:  # noqa: BLE001
             log.warning("[stage7] 路人升级失败: %s", exc)
 
+        # 章节事件提炼：写入领域状态目录（供写作上下文按需查询）
+        try:
+            from novel_agent.agents.chapter_event import extract_chapter_event
+            from novel_agent.storage import write_json_atomic
+
+            event = extract_chapter_event(chapter, vol, cfg)
+            event_dir = paths.data_dir / "domains" / "events"
+            event_dir.mkdir(parents=True, exist_ok=True)
+            write_json_atomic(event_dir / f"chapter_{ch}.json", event)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[stage7] 章节事件提炼失败: %s", exc)
+
         # 记忆更新完成后推进章节游标
         nxt = _next_position(state.get("volume_plans") or [], vol, ch)
         finished = nxt is None
@@ -512,7 +524,7 @@ def _stage7(cfg: Config):
             "current_chapter": next_ch,
             "current_stage": "done" if finished else "stage4b",
             "memory_notes": [*state.get("memory_notes", []), f"第{vol}卷第{ch}章记忆已更新"],
-            "messages": [*state.get("messages", []), f"stage7 第{vol}卷第{ch}章记忆更新"],
+            "messages": [*(state.get("messages", [])[-30:]), f"stage7 第{vol}卷第{ch}章记忆更新"],
             # 写手提案已作为 author_hints 消费（见上方提取调用），此处清除
             "writer_proposals": None,
         }

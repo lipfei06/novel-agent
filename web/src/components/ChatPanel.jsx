@@ -89,7 +89,7 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
         </button>
       </div>
 
-      <div ref={boxRef} className="min-h-96 max-h-[560px] overflow-auto space-y-2 mb-3 pr-1">
+      <div ref={boxRef} className="min-h-96 max-h-[560px] overflow-auto space-y-2 mb-3 pr-1 pb-2">
         {messages.length === 0 && (
           <div className="h-80 flex items-center justify-center text-xs text-muted">
             和 AI 聊聊你的想法，满意后让它「提出方案」。

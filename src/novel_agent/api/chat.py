@@ -48,7 +48,7 @@ def save_history(path: Path, messages: list[dict]) -> None:
     write_json_atomic(path, messages)
 
 
-def _outline_grounding(values: dict, root: Path) -> str:
+def _outline_grounding(values: dict, root: Path, project_id: str = "") -> str:
     """总纲助手的资料包：立项书/世界观/人物/蓝图/伏笔账本/手法/技法参考。"""
     from novel_agent.agents.packet import collect_pending_foreshadow
     from novel_agent.library.techniques import stage_guidance
@@ -67,6 +67,34 @@ def _outline_grounding(values: dict, root: Path) -> str:
     chapters = values.get("chapters") or {}
     if chapters:
         parts.append(f"已写章节数：{len(chapters)}")
+        # 已写章节的标题列表（让助手知道每章写了什么）
+        chapter_titles = []
+        for k in sorted(chapters.keys(), key=lambda x: [int(n) for n in x.split("_")]):
+            ch_data = chapters[k]
+            t = ch_data.get("title", "")
+            chapter_titles.append(f"第{ch_data.get('chapter', '?')}章 {t}")
+        if chapter_titles:
+            parts.append("已写章节：" + "；".join(chapter_titles))
+        # 已写章节摘要（从中期记忆读取）
+        from novel_agent.memory import MidTermMemory
+        from novel_agent.storage import ProjectPaths
+
+        mid_p = ProjectPaths(root, project_id).memory_dir
+        midterm = MidTermMemory(mid_p / "mid_term.json")
+        recent = midterm.recent(10)
+        if recent:
+            parts.append("前情章节摘要：\n" + "\n".join(recent)[:2000])
+        cs = values.get("character_state") or {}
+        entries = cs.get("entries", [])
+        if entries:
+            state_lines = []
+            for e in entries:
+                state_lines.append(
+                    f"- {e.get('name', e.get('character_id', '?'))}："
+                    f"位置={e.get('location', '?')} · 情绪={e.get('mood', '?')} · "
+                    f"知道={e.get('knowledge', '?')} · 目标进展={e.get('goal_progress', '?')}"
+                )
+            parts.append("人物当前状态：\n" + "\n".join(state_lines)[:1200])
     bp = values.get("narrative_blueprint")
     if bp:
         parts.append("叙事蓝图（主题/意象/暗线）：" + json.dumps(bp, ensure_ascii=False)[:1200])
@@ -152,12 +180,18 @@ def _system_for(context: str, values: dict, cfg: Config, root: Path, project_id:
         )
     if context == "outline":
         o = values.get("outline")
+        chapters_map = values.get("chapters") or {}
+        ch_count = len(chapters_map)
         current = f"当前总纲：{json.dumps(o, ensure_ascii=False)}\n" if o else "尚未生成总纲。\n"
-        grounding = _outline_grounding(values, root)
+        grounding = _outline_grounding(values, root, project_id)
         return (
             "你是全书架构助手。帮用户讨论并完善总纲（结构/分卷/转折/伏笔/结局）。" + current +
             grounding +
-            "给出分卷与情节建议时必须基于上述资料，引用具体设定与伏笔，不要空泛。"
+            "\n【硬性约束】\n"
+            f"- 本书已完成前 {ch_count} 章，上述前情摘要与人物状态是**已确立的事实**，建议不得与之矛盾\n"
+            "- 每个建议必须引用具体章节号和角色名来论证（如'第3章的冲突为第5章的升级提供了动机'）\n"
+            "- 若建议改变走向，必须逐条说明影响哪些已写章节以及如何过渡\n"
+            "- 只讨论资料中列出的人物，不要发明新角色或新设定\n"
             "用户满意后可「提出方案」输出完整总纲。"
         )
     if context.startswith("volume_"):
@@ -166,11 +200,15 @@ def _system_for(context: str, values: dict, cfg: Config, root: Path, project_id:
         plan = next((p for p in plans if p.get("volume") == vol), None)
         current = f"当前卷{vol}规划：{json.dumps(plan, ensure_ascii=False)}\n" if plan else f"卷{vol} 尚未规划。\n"
         grounding = _volume_grounding(values, root, project_id, vol)
+        written = len([k for k in (values.get("chapters") or {}) if k.startswith(f"{vol}_")])
         return (
             f"你是分卷规划助手。围绕卷{vol}帮用户完善事件弧/伏笔/章数/卷末悬念。{current}"
             + grounding +
-            f"建议必须基于上述资料引用具体设定与伏笔，不要空泛。"
-            f"用户满意后可「提出方案」输出该卷规划。"
+            "\n【硬性约束】\n"
+            f"- 本卷已写 {written} 章，上述摘要与人物状态是既定事实，建议不得与之矛盾\n"
+            "- 建议必须引用具体角色名与已发生事件来论证\n"
+            "- 不与伏笔账本冲突；如需收束或新增伏笔，指明对应章节\n"
+            "用户满意后可「提出方案」输出该卷规划。"
         )
     if context.startswith("chapter_"):
         parts = context.split("_")

@@ -54,9 +54,26 @@ def _interrupt_payload(runtime) -> dict | None:
 
 
 def _confirm_view(runtime) -> dict:
+    """返回确认视图。若流水线无产出但已有旁路章节，视为过时状态（不再显示确认）。"""
     st = runtime.graph.get_state(runtime.thread)
     info = _interrupt_payload(runtime)
     values = st.values
+
+    chapters = values.get("chapters") or {}
+    packets = values.get("writer_packets") or {}
+
+    # 已有旁路章节且流水线从未产出 packet → 流水线状态过时，跳过确认
+    if chapters and not packets:
+        return {
+            "done": True,
+            "stage": None,
+            "stage_label": None,
+            "payload": None,
+            "current_stage": values.get("current_stage"),
+            "current_volume": values.get("current_volume"),
+            "current_chapter": values.get("current_chapter"),
+        }
+
     if info is None:
         return {
             "done": True,
