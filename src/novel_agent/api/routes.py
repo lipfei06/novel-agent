@@ -570,6 +570,43 @@ def delete_saved_chapter(project_id: str, vol: int, ch: int, request: Request) -
     return {"ok": True, "deleted": key, "remaining_chapters": remaining}
 
 
+class MemoryRebuildIn(BaseModel):
+    scope: str = "all"  # vector | graph | all
+
+
+@router.post("/projects/{project_id}/memory/rebuild")
+def rebuild_project_memory(project_id: str, body: MemoryRebuildIn, request: Request) -> dict:
+    """从全量已接受章节重建向量库与时序图谱（记忆一致性兜底阀）。
+
+    清空目标库后按章号升序重放"场景切片 + 关系抽取"（与增量写入同一份逻辑）。
+    中期摘要不重算。真实模式下图谱重建每章消耗一次 cheap 调用。
+    """
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    scope = str(body.scope or "all").lower()
+    if scope not in ("vector", "graph", "all"):
+        raise HTTPException(status_code=400, detail=f"非法 scope：{body.scope}（可选 vector/graph/all）")
+    _, runtime, values, _ = _project_ctx(request, project_id, meta.genre)
+    chapters = values.get("chapters") or {}
+    if not chapters:
+        raise HTTPException(status_code=400, detail="项目暂无已接受章节，无需重建")
+
+    from novel_agent.llm import get_embedder
+    from novel_agent.memory import LongTermMemory, rebuild_memory
+    from novel_agent.rag import TemporalGraph
+
+    _, vec_p, graph_p = _mem_paths(request.app.state.root, project_id)
+    cfg = _store(request).load_config(meta.genre)
+    # embed_fn 必须与库 mode 一致，否则模式不匹配会当空库、save 时清空原向量
+    lt = LongTermMemory(vec_p, embed_fn=get_embedder(cfg)) if scope in ("vector", "all") else None
+    g = TemporalGraph(graph_p) if scope in ("graph", "all") else None
+    stats = rebuild_memory(chapters, cfg, long_term=lt, graph=g, characters=values.get("characters") or [])
+    return {"ok": True, "scope": scope, **stats}
+
+
 @router.get("/projects/{project_id}/cost")
 def project_cost(project_id: str, request: Request) -> dict:
     """返回该项目累计的 token 用量与估算费用。"""

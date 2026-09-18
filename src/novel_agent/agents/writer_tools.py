@@ -91,12 +91,15 @@ def _q_character_profile(ctx: WriterCtx, args: dict) -> str:
 
 
 def _q_search_memory(ctx: WriterCtx, args: dict) -> str:
+    from novel_agent.llm import get_embedder
     from novel_agent.memory import LongTermMemory
 
     keyword = str(args.get("keyword") or "")
     top_k = int(args.get("top_k") or 4)
     paths = _project_paths(ctx)
-    hits = LongTermMemory(paths.vector_dir / "long_term.json").search(keyword, top_k=top_k)
+    # embed_fn 必须与库 mode 一致（dense 库用 sparse 构造会模式不匹配、静默查空）
+    m = LongTermMemory(paths.vector_dir / "long_term.json", embed_fn=get_embedder(ctx.cfg))
+    hits = m.search(keyword, top_k=top_k)
     return _safe_dump({"hits": hits})
 
 

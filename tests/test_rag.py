@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
-from novel_agent.memory import LongTermMemory
+os.environ.setdefault("NOVEL_ENGINE_MOCK", "1")  # rebuild 走关系抽取，保持离线确定性
+
+from novel_agent.memory import LongTermMemory, rebuild_memory
 from novel_agent.rag import TemporalGraph, retrieve
 
 
@@ -147,3 +150,48 @@ def test_long_term_add_diff_by_meta():
     assert len(m) == 1  # 替换而非追加
     hits = m.search("修订后的场景", top_k=1)
     assert hits and "XYZ" in hits[0]
+
+
+def test_rebuild_memory_all_restores_after_rollback():
+    """删除残留 → rebuild(all) → 两库恢复完整（一致性兜底阀）。"""
+    path = _tmp()
+    chapters = {
+        "1_1": {"volume": 1, "chapter": 1, "title": "一", "scenes": [{"text": "主角在雨夜拾到怀表"}]},
+        "1_2": {"volume": 1, "chapter": 2, "title": "二", "scenes": [{"text": "主角与盟友因怀表争执"}]},
+    }
+    lt = LongTermMemory(path / "long_term.json")
+    g = TemporalGraph(path / "graph.json")
+    rebuild_memory(chapters, None, long_term=lt, graph=g, characters=[])
+    total = len(lt)
+    assert total >= 2
+    lt.remove_chapter(1, 1)  # 模拟删除残留
+    assert len(lt) < total
+    stats = rebuild_memory(chapters, None, long_term=lt, graph=g, characters=[])
+    assert stats["chapters"] == 2 and stats["scenes"] == 2
+    assert len(lt) == total  # 重建后恢复
+    assert lt.search("怀表", top_k=4)  # 两章内容均可召回
+
+
+def test_rebuild_memory_scope_isolation():
+    """scope=graph 不动向量库；scope=vector 不动图谱。"""
+    path = _tmp()
+    chapters = {"1_1": {"volume": 1, "chapter": 1, "title": "一", "scenes": [{"text": "场景内容甲"}]}}
+    chars = [{"name": "主角", "role": "protagonist"}, {"name": "盟友", "role": "ally"}]
+    lt = LongTermMemory(path / "long_term.json")
+    g = TemporalGraph(path / "graph.json")
+    rebuild_memory(chapters, None, long_term=lt, graph=g, characters=chars)
+    assert len(lt) == 1 and len(g) == 1  # mock 关系抽取每章一条边
+
+    # 仅重建图谱：边重算、向量不动
+    g.add_edge("多余", "边", "测试", vol=9, ch=9)  # 制造图谱脏数据
+    stats = rebuild_memory(chapters, None, long_term=None, graph=g, characters=chars)
+    assert stats["scenes"] == 0  # 向量部分未执行
+    assert len(lt) == 1  # 向量库未被触碰
+    assert len(g) == 1  # 图谱被清空重算，脏边消失
+
+    # 仅重建向量：图谱不动
+    g.add_edge("多余", "边", "测试", vol=9, ch=9)
+    stats = rebuild_memory(chapters, None, long_term=lt, graph=None, characters=chars)
+    assert stats["relations"] == 0
+    assert len(g) == 2  # 图谱未被触碰（含脏边）
+    assert len(lt) == 1

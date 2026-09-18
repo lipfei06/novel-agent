@@ -79,6 +79,11 @@ class TemporalGraph:
             self._save()
         return removed
 
+    def clear_edges(self) -> None:
+        """清空全部关系边（节点集保留），用于重建。"""
+        self.edges = []
+        self._save()
+
     def neighbors(self, entity: str, vol: int = 0, ch: int = 0) -> list[dict]:
         """截至 (vol, ch) 的邻接关系（不泄露未来信息）。附带 chapter 展示字段。"""
         cur = (int(vol), int(ch))

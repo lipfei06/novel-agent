@@ -1,6 +1,6 @@
 # RAG 记忆系统 P0 优化需求分析
 
-> 版本：v1.0 ｜ 日期：2026-09-18 ｜ 状态：已评审，进入实现
+> 版本：v1.1 ｜ 日期：2026-09-18 ｜ 状态：P0 已实现（commit 73f402c）；P1 已评审进入实现
 > 范围：长期向量库（`memory/long_term.py`）、时序知识图谱（`rag/temporal_graph.py`）、记忆更新（`memory/update.py`）、组合检索（`rag/retriever.py`）、章节删除（`api/routes.py`）
 
 ---
@@ -154,3 +154,32 @@ RAG 记忆链路（章节定稿 → 场景切片入向量库 → 关系入时序
 | 旧数据迁移假设（chapter→vol=1）对多卷存量不成立 | 存量项目均为单卷；文档声明；未来 rebuild 命令可整体重算 |
 | 切分导致 chunk 数增多、检索变慢 | 一章 3~5 块 → 至多 8~10 块，量级无虞（暴力扫描毫秒级） |
 | 检索结果带前缀改变写手 prompt 格式 | 仅写作上下文启用，默认关闭；无测试依赖原文格式 |
+
+---
+
+## 7. P1 追加需求：记忆重建（rebuild）
+
+> v1.1 追加。P0 落地后，删除/回滚的不一致已被缩小，但仍需一个**兜底阀**：
+> 任何原因导致的记忆脏污（历史残留、embedding 升级、关系抽取提示词升级、
+> 手工误改存储文件）都应能通过"从事实源全量重算"恢复。
+
+### FR-7 记忆重建
+
+| 项 | 内容 |
+|---|---|
+| 事实源 | LangGraph State 中的全量 `chapters`（已接受章节），一切派生存储可由此重算 |
+| 范围 | `scope=vector`：仅向量库；`scope=graph`：仅图谱；`scope=all`：两者 |
+| 流程 | 清空目标库 → 按章号升序重放"场景切片入库 + 关系抽取入图"（复用 P0 重构出的 `_index_chapter`） |
+| 不动 | 中期摘要不重算（LLM 成本高且自身增删改生命周期已自洽）；正文与 State 不动 |
+| 成本 | 向量：每场景一次 embedding（dense 模式）；图谱：每章一次 cheap 模型抽取（真实模式）。mock 模式零成本确定性 |
+| 接口 | `memory.update.rebuild_memory(chapters, cfg, long_term=None, graph=None, characters=None, progress=None) -> dict`；API `POST /projects/{id}/memory/rebuild` body `{"scope": "vector"\|"graph"\|"all"}` |
+| 守卫 | 无已接受章节时 400；scope 非法时 400；`LongTermMemory` 一律带 `embed_fn` 构造（防模式误清空） |
+| 重构 | `update_chapter_memory` 的向量+图谱部分提取为 `_index_chapter`，写入与重建共用同一份索引逻辑——**重放即等价重建**的关键 |
+
+**附带修复**：`agents/writer_tools.py` 的 `search_memory` 工具构造 `LongTermMemory` 缺 `embed_fn`——dense 模式项目下该工具静默返回空结果（模式不匹配）。补上 `embed_fn=get_embedder(ctx.cfg)`。
+
+**验收**：
+1. 重建后向量库 chunk 集 = 全量章节场景按同一规则切分的结果；图谱边 = 各章关系边并集；
+2. 删除章节制造残留 → rebuild(all) → 两库无残留；
+3. scope=vector 不动图谱，scope=graph 不动向量；
+4. mock 模式全流程离线确定性，测试覆盖。

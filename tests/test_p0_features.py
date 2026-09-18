@@ -155,3 +155,25 @@ def test_save_character_as_template():
         assert r.json()["id"].startswith("ct_")
         entries = c.get("/api/library/character_template").json()["entries"]
         assert any(e["id"] == r.json()["id"] for e in entries)
+
+
+def test_memory_rebuild_endpoint():
+    with _client() as c:
+        c.post("/api/projects", json={"title": "重建", "genre": "short_story", "project_id": "pRb"})
+        _setup(c, "pRb")
+        c.post("/api/projects/pRb/volumes/1/chapters", json={"goal": "x"})
+        c.post("/api/projects/pRb/chapters/1/1/accept")
+        # 非法 scope
+        r = c.post("/api/projects/pRb/memory/rebuild", json={"scope": "bad"})
+        assert r.status_code == 400
+        # 全量重建
+        r = c.post("/api/projects/pRb/memory/rebuild", json={"scope": "all"})
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] and data["chapters"] >= 1
+        # 删章后重建：记忆残留被清除、新章重新入库
+        assert c.delete("/api/projects/pRb/volumes/1/chapters/1").status_code == 200
+        c.post("/api/projects/pRb/volumes/1/chapters", json={"goal": "y"})
+        c.post("/api/projects/pRb/chapters/1/1/accept")
+        r = c.post("/api/projects/pRb/memory/rebuild", json={"scope": "all"})
+        assert r.status_code == 200 and r.json()["chapters"] >= 1

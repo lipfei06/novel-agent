@@ -8,6 +8,47 @@ from .long_term import LongTermMemory
 from .mid_term import MidTermMemory
 
 
+def _index_chapter(
+    chapter: dict,
+    cfg: Config,
+    long_term: LongTermMemory | None,
+    graph: TemporalGraph | None,
+    characters: list[dict] | None,
+) -> dict:
+    """单章索引：场景切片入向量库 + 关系边入时序图谱。
+
+    写入（update_chapter_memory）与重建（rebuild_memory）共用——保证
+    "重放即等价重建"。long_term / graph 传 None 可跳过对应部分（按 scope 重建）。
+    """
+    vol = int(chapter.get("volume", 1))
+    ch = int(chapter.get("chapter", 1))
+    stats = {"scenes": 0, "relations": 0}
+
+    scene_texts = [s.get("text", "") for s in chapter.get("scenes", []) if s.get("text")]
+    if long_term is not None and scene_texts:
+        stats["scenes"] = len(scene_texts)
+        metas = [
+            {"vol": vol, "ch": ch, "scene": i + 1, "key": f"{vol}_{ch}"}
+            for i in range(len(scene_texts))
+        ]
+        long_term.add(scene_texts, metas)
+
+    if graph is not None:
+        for c in characters or []:
+            if c.get("name"):
+                graph.add_node(c["name"])
+        relations = extract_relations(chapter, characters or [], cfg)
+        edges = [
+            {"a": r["a"], "b": r["b"], "kind": r.get("kind", "互动"), "vol": vol, "ch": ch,
+             "note": (r.get("note") or "")}
+            for r in relations
+        ]
+        if edges:
+            graph.add_edges(edges)
+        stats["relations"] = len(edges)
+    return stats
+
+
 def update_chapter_memory(
     chapter: dict,
     cfg: Config,
@@ -22,27 +63,50 @@ def update_chapter_memory(
     summary = midterm.summarize_chapter(chapter, cfg)
     midterm.add(vol, ch, summary)
 
-    scene_texts = [s.get("text", "") for s in chapter.get("scenes", []) if s.get("text")]
-    metas = [
-        {"vol": vol, "ch": ch, "scene": i + 1, "key": f"{vol}_{ch}"}
-        for i in range(len(scene_texts))
-    ]
-    long_term.add(scene_texts, metas)
+    stats = _index_chapter(chapter, cfg, long_term, graph, characters)
+    edges = stats["relations"] if graph is not None else 0
+    return {"summary": summary, "scenes": stats["scenes"], "relations": edges}
 
+
+def rebuild_memory(
+    chapters: dict[str, dict],
+    cfg: Config,
+    long_term: LongTermMemory | None = None,
+    graph: TemporalGraph | None = None,
+    characters: list[dict] | None = None,
+    progress=None,
+) -> dict:
+    """从事实源（全量已接受章节）重建向量库与时序图谱。
+
+    兜底一切派生存储脏污：删除残留、embedding/抽取逻辑升级、手工误改。
+    清空目标库后按章号升序重放 _index_chapter（与增量写入同一份逻辑）。
+    中期摘要不重算（自身增删改已自洽，重算需逐章 LLM 成本高）。
+    """
+    if long_term is not None:
+        long_term.clear()
     if graph is not None:
-        for c in characters or []:
-            if c.get("name"):
-                graph.add_node(c["name"])
-        relations = extract_relations(chapter, characters or [], cfg)
-        edges = [
-            {"a": r["a"], "b": r["b"], "kind": r.get("kind", "互动"), "vol": vol, "ch": ch,
-             "note": (r.get("note") or summary[:30])}
-            for r in relations
-        ]
-        if edges:
-            graph.add_edges(edges)
+        graph.clear_edges()
 
-    return {"summary": summary, "scenes": len(scene_texts), "relations": len(edges) if graph is not None else 0}
+    def _k2tuple(k: str) -> tuple[int, int]:
+        try:
+            a, b = str(k).split("_")
+            return (int(a), int(b))
+        except ValueError:
+            return (0, 0)
+
+    keys = sorted((chapters or {}).keys(), key=_k2tuple)
+    totals = {"chapters": 0, "scenes": 0, "relations": 0}
+    for n, key in enumerate(keys, 1):
+        chapter = chapters[key]
+        if not isinstance(chapter, dict) or not chapter.get("scenes"):
+            continue
+        stats = _index_chapter(chapter, cfg, long_term, graph, characters)
+        totals["chapters"] += 1
+        totals["scenes"] += stats["scenes"]
+        totals["relations"] += stats["relations"]
+        if progress is not None:
+            progress(f"重建 {key}（{n}/{len(keys)}）", int(n / max(len(keys), 1) * 100))
+    return totals
 
 
 def extract_relations(chapter: dict, characters: list[dict], cfg: Config) -> list[dict]:
