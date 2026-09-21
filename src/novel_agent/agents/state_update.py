@@ -5,7 +5,7 @@ import json
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured
-from novel_agent.types import Chapter, Character
+from novel_agent.types import Chapter, Character, chapter_plaintext
 from novel_agent.types.character_state import CharacterState, CharacterStateEntry
 from pydantic import BaseModel, Field
 
@@ -46,7 +46,7 @@ def extract_character_states(
         return _mock_state(chapter_data, mains, prev_entries, int(cfg.genre.chapters_per_volume or 6))
 
     user = (
-        f"本章：{json.dumps(chapter_data, ensure_ascii=False)}\n"
+        f"{chapter_plaintext(chapter_data)}\n"
         f"主要角色：{json.dumps([{k: c[k] for k in ('id', 'name', 'role') if k in c} for c in mains], ensure_ascii=False)}\n"
         f"上一章状态：{json.dumps(prev_entries, ensure_ascii=False)}\n"
     )

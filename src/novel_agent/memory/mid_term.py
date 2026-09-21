@@ -58,6 +58,7 @@ class MidTermMemory:
         from pydantic import BaseModel, Field
 
         from novel_agent.llm import build_messages, get_chat_model, invoke_structured
+        from novel_agent.types import chapter_plaintext
 
         class ChapterSummary(BaseModel):
             summary: str = Field(default="")
@@ -66,7 +67,7 @@ class MidTermMemory:
             "你是小说编辑。用 80-150 字概括本章：关键事件、人物动机与行动、冲突结果、"
             "留给下一章的钩子。只输出 JSON：{\"summary\": \"...\"}"
         )
-        user = f"本章：{json.dumps(chapter, ensure_ascii=False)}"
+        user = f"本章：\n{chapter_plaintext(chapter)}"
         messages = build_messages(system, user, "summary", cfg.token_budget)
         llm = get_chat_model("cheap", cfg)
         result = invoke_structured(llm, messages, schema=ChapterSummary)

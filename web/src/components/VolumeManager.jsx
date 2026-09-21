@@ -178,7 +178,12 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
 function ChapterList({ vol, chapters, onOpen }) {
   const items = Object.entries(chapters)
     .filter(([k]) => k.startsWith(`${vol}_`))
-    .sort(([a], [b]) => a.localeCompare(b))
+    .sort(([a], [b]) => {
+      // 数值序：避免 "1_10" 排到 "1_2" 前面的字符串序问题
+      const [av, ac] = a.split("_").map(Number)
+      const [bv, bc] = b.split("_").map(Number)
+      return av - bv || ac - bc
+    })
   return (
     <div>
       <p className="text-xs font-medium text-muted mb-2">已写章节（点击查看/修改）</p>

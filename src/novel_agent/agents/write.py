@@ -59,8 +59,9 @@ def generate_chapter(
         refs = [f"- {t.get('name')}（{t.get('category', '')}）：{t.get('usage_guidelines', '')}" for t in tools]
         tool_note = "\n<本章可运用的叙事技法>\n" + "\n".join(refs) + "\n</本章可运用的叙事技法>"
     research_note = f"\n{research_digest}" if research_digest else ""
+    # 缓存友好（OPT-D）：跨章最稳定的记忆块前置，每章变化的 packet 随后
     user = (
-        f"writer_packet：{json.dumps(packet_data, ensure_ascii=False)}{extra}\n{length}\n"
+        f"{extra}\nwriter_packet：{json.dumps(packet_data, ensure_ascii=False)}\n{length}\n"
         f"{tech_note}{dark_note}{tool_note}{research_note}\n请写本章正文。"
     )
     messages = build_messages(SYSTEM_PROMPT, user, "write", cfg.token_budget, style=style_directive(cfg))
@@ -105,10 +106,12 @@ def rewrite_chapter(
     tech_note = stage_guidance(techniques, ("writing",))
     dark_note = dark_line_directive(blueprint)
     research_note = f"\n{research_digest}" if research_digest else ""
+    # 缓存友好（OPT-D）：记忆块前置，随后才是每章变化的规划与原文
     user = (
+        f"{extra}\n"
         f"章节规划：{json.dumps(packet_data, ensure_ascii=False)}\n"
         f"原章节：{json.dumps(existing_data, ensure_ascii=False)}\n"
-        f"{extra}\n{length}\n{tech_note}{dark_note}{research_note}\n请重新创作本章，与原文有明显不同且质量更优。"
+        f"{length}\n{tech_note}{dark_note}{research_note}\n请重新创作本章，与原文有明显不同且质量更优。"
     )
     messages = build_messages(SYSTEM_PROMPT_REWRITE, user, "write", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("writer", cfg)

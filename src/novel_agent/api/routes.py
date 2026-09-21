@@ -414,13 +414,12 @@ def _build_writing_context(values: dict, packet, cfg: Config, root: Path, projec
 
     mid_p, vec_p, graph_p = _mem_paths(root, project_id)
     parts = []
-    short = _bounded(get_short_term(values.get("chapters") or {}, int(cfg.memory.get("short_window", 5))), 16000)
-    if short:
-        parts.append(short)
+    full_window = int(cfg.memory.get("full_window", 1))
+    all_keys = sorted((values.get("chapters") or {}).keys())
+    recent_keys = set(all_keys[-full_window:])
+    short = _bounded(get_short_term(values.get("chapters") or {}, full_window), 12000)
     midterm = MidTermMemory(mid_p)
     vol = int(packet.volume or 1)
-    all_keys = sorted((values.get("chapters") or {}).keys())
-    recent_keys = set(all_keys[-5:])
     cur_sums = midterm.summaries_for_volume(vol)
     older_cur = {c: s for c, s in cur_sums.items() if f"{vol}_{c}" not in recent_keys}
     if older_cur:
@@ -431,6 +430,9 @@ def _build_writing_context(values: dict, packet, cfg: Config, root: Path, projec
     if past_sums:
         parts.append("之前各卷卷摘要：\n" + _bounded(
             "\n".join(f"第{v}卷：{s}" for v, s in sorted(past_sums.items())), 2000))
+    if short:
+        # 缓存友好（OPT-D）：摘要（稳定）在前，最近全文在后
+        parts.append("最近章节全文：\n" + short)
     memory_context = "\n\n".join(parts)
 
     # 登场人物速查卡（main/supporting：外貌、声音、动机；background 不收录）
@@ -1196,6 +1198,19 @@ def _finalize_chapter(runtime, values, cfg, root: Path, project_id: str, chapter
     from novel_agent.memory import LongTermMemory, MidTermMemory
     from novel_agent.rag import TemporalGraph
 
+    prev_entries = (values.get("character_state") or {}).get("entries", [])
+    # 章节理解三合一（OPT-B）：一次调用产出 摘要+状态+关系；失败退回独立抽取
+    understanding = None
+    try:
+        from novel_agent.agents.understanding import understand_chapter
+
+        understanding = understand_chapter(
+            chapter.model_dump(), values.get("characters") or [], prev_entries, cfg,
+            author_hints=author_hints,
+        )
+    except Exception as exc:
+        log.warning("[finalize] 章节理解合并调用失败: %s", exc)
+
     try:
         from novel_agent.memory import update_chapter_memory
 
@@ -1203,19 +1218,24 @@ def _finalize_chapter(runtime, values, cfg, root: Path, project_id: str, chapter
             chapter.model_dump(), cfg,
             MidTermMemory(mid_p), LongTermMemory(vec_p, embed_fn=get_embedder(cfg)), TemporalGraph(graph_p),
             values.get("characters"),
+            understanding=understanding,
         )
     except Exception as exc:
         log.warning("[finalize] 记忆更新失败: %s", exc)
 
     try:
-        from novel_agent.agents.state_update import extract_character_states
         from novel_agent.types.character_state import CharacterState
 
-        prev_state = CharacterState(**values["character_state"]) if values.get("character_state") else None
-        new_state = extract_character_states(
-            chapter.model_dump(), values.get("characters") or [], prev_state, cfg,
-            author_hints=author_hints,
-        )
+        if understanding is not None:
+            new_state = CharacterState(entries=understanding.entries)
+        else:
+            from novel_agent.agents.state_update import extract_character_states
+
+            prev_state = CharacterState(**values["character_state"]) if values.get("character_state") else None
+            new_state = extract_character_states(
+                chapter.model_dump(), values.get("characters") or [], prev_state, cfg,
+                author_hints=author_hints,
+            )
         runtime.graph.update_state(runtime.thread, {"character_state": new_state.model_dump()})
     except Exception as exc:
         log.warning("[finalize] 状态更新失败: %s", exc)

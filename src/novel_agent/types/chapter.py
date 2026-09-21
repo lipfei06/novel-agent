@@ -37,3 +37,18 @@ class Chapter(BaseModel):
     chapter: int = 0
     title: str = ""
     scenes: list[SceneBlock] = Field(default_factory=list)
+
+
+def chapter_plaintext(chapter: "Chapter | dict") -> str:
+    """章节 → 純文本（抽取类 prompt 专用）：避免 scenes JSON 的键名/转义膨胀（成本优化 OPT-C）。"""
+    d = chapter.model_dump() if hasattr(chapter, "model_dump") else dict(chapter or {})
+    vol = d.get("volume", 1)
+    ch = d.get("chapter", 1)
+    lines = [f"第{vol}卷第{ch}章《{d.get('title', '')}》"]
+    for s in d.get("scenes", []):
+        heading = (s.get("heading") or "").strip() if isinstance(s, dict) else ""
+        text = (s.get("text") or "").strip() if isinstance(s, dict) else ""
+        if not text:
+            continue
+        lines.append(f"【{heading}】\n{text}" if heading else text)
+    return "\n\n".join(lines)

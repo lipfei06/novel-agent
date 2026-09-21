@@ -318,26 +318,26 @@ def _memory_context(state: NovelState, cfg: Config) -> str:
     """
     paths = _project_paths(state)
     parts = []
-    window = int(cfg.memory.get("short_window", 5))
+    full_window = int(cfg.memory.get("full_window", 1))
     chapters = state.get("chapters") or {}
-    short = get_short_term(chapters, window)
-    if short:
-        parts.append(short)
     midterm = MidTermMemory(paths.memory_dir / "mid_term.json")
-
-    # 本卷已写章摘要（排除短期窗口已覆盖的最近几章，避免重复）
     keys = sorted(chapters.keys(), key=lambda k: [int(x) for x in k.split("_")])
-    recent_keys = set(keys[-window:])
-    cur_sums = midterm.summaries_for_volume(vol=int(state.get("current_volume", 1)))
-    older_cur = {c: s for c, s in cur_sums.items() if f"{state.get('current_volume', 1)}_{c}" not in recent_keys}
+    recent_keys = set(keys[-full_window:])
+    cur_vol = int(state.get("current_volume", 1))
+
+    # 缓存友好（OPT-D）：稳定的摘要在前，仅最近 N 章全文在后（最老→最新，追加位在尾部）
+    cur_sums = midterm.summaries_for_volume(vol=cur_vol)
+    older_cur = {c: s for c, s in cur_sums.items() if f"{cur_vol}_{c}" not in recent_keys}
     if older_cur:
         parts.append("本卷更早章节摘要：\n" + "\n".join(f"第{c}章：{s}" for c, s in sorted(older_cur.items()))[:4000])
-
-    # 之前各卷卷摘要（跨卷骨架）
     vol_sums = midterm.volume_summaries()
-    past_sums = {v: s for v, s in vol_sums.items() if v < int(state.get("current_volume", 1))}
+    past_sums = {v: s for v, s in vol_sums.items() if v < cur_vol}
     if past_sums:
         parts.append("之前各卷卷摘要：\n" + "\n".join(f"第{v}卷：{s}" for v, s in sorted(past_sums.items()))[:2000])
+
+    short = get_short_term(chapters, full_window)
+    if short:
+        parts.append("最近章节全文：\n" + short)
 
     cs = state.get("character_state")
     if cs:
@@ -468,26 +468,42 @@ def _stage7(cfg: Config):
         midterm = MidTermMemory(paths.memory_dir / "mid_term.json")
         long_term = LongTermMemory(paths.vector_dir / "long_term.json", embed_fn=get_embedder(cfg))
         graph = TemporalGraph(paths.graph_dir / "graph.json")
-        update_chapter_memory(chapter, cfg, midterm, long_term, graph, state.get("characters"))
 
-        # 人物状态增量 + 路人升级：随章节自动更新（失败不阻断主流程）
         from novel_agent.logutil import get_logger
+        from novel_agent.types.character_state import CharacterState
 
         log = get_logger()
         proposals = state.get("writer_proposals") or {}
+        hints = proposals.get("state_updates") or None
+        prev_state = CharacterState(**state["character_state"]) if state.get("character_state") else None
+        prev_entries = (prev_state.model_dump() if prev_state else {}).get("entries", [])
+        characters = state.get("characters") or []
+
+        # 章节理解三合一（OPT-B）：摘要+状态+关系一次调用；失败退回独立抽取
+        understanding = None
+        try:
+            from novel_agent.agents.understanding import understand_chapter
+
+            understanding = understand_chapter(chapter, characters, prev_entries, cfg, author_hints=hints)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[stage7] 章节理解合并调用失败，退回独立抽取: %s", exc)
+        update_chapter_memory(chapter, cfg, midterm, long_term, graph, characters, understanding=understanding)
+
+        # 人物状态增量 + 路人升级：随章节自动更新（失败不阻断主流程）
         character_state_update = None
         try:
-            from novel_agent.agents.state_update import extract_character_states
-            from novel_agent.types.character_state import CharacterState
+            from novel_agent.types.character_state import CharacterState as _CS
 
-            prev_state = CharacterState(**state["character_state"]) if state.get("character_state") else None
-            # 传原始 dict（agent 内部按 dict 处理，Pydantic 对象会破坏 mock 分支）
-            characters = state.get("characters") or []
-            new_state = extract_character_states(
-                chapter, characters, prev_state, cfg,
-                author_hints=proposals.get("state_updates") or None,
-            )
-            character_state_update = new_state.model_dump()
+            if understanding is not None:
+                character_state_update = _CS(entries=understanding.entries).model_dump()
+            else:
+                from novel_agent.agents.state_update import extract_character_states
+
+                new_state = extract_character_states(
+                    chapter, characters, prev_state, cfg,
+                    author_hints=hints,
+                )
+                character_state_update = new_state.model_dump()
         except Exception as exc:  # noqa: BLE001
             log.warning("[stage7] 人物状态更新失败: %s", exc)
 

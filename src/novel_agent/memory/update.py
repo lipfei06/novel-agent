@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from novel_agent.config import Config
 from novel_agent.rag import TemporalGraph
+from novel_agent.types import chapter_plaintext
 
 from .long_term import LongTermMemory
 from .mid_term import MidTermMemory
@@ -14,11 +15,13 @@ def _index_chapter(
     long_term: LongTermMemory | None,
     graph: TemporalGraph | None,
     characters: list[dict] | None,
+    relations: list[dict] | None = None,
 ) -> dict:
     """单章索引：场景切片入向量库 + 关系边入时序图谱。
 
     写入（update_chapter_memory）与重建（rebuild_memory）共用——保证
     "重放即等价重建"。long_term / graph 传 None 可跳过对应部分（按 scope 重建）。
+    relations 传入时（来自 understand_chapter 合并调用）直接使用，跳过独立抽取。
     """
     vol = int(chapter.get("volume", 1))
     ch = int(chapter.get("chapter", 1))
@@ -37,7 +40,8 @@ def _index_chapter(
         for c in characters or []:
             if c.get("name"):
                 graph.add_node(c["name"])
-        relations = extract_relations(chapter, characters or [], cfg)
+        if relations is None:
+            relations = extract_relations(chapter, characters or [], cfg)
         edges = [
             {"a": r["a"], "b": r["b"], "kind": r.get("kind", "互动"), "vol": vol, "ch": ch,
              "note": (r.get("note") or "")}
@@ -56,14 +60,25 @@ def update_chapter_memory(
     long_term: LongTermMemory,
     graph: TemporalGraph | None = None,
     characters: list[dict] | None = None,
+    understanding=None,
 ) -> dict:
-    """对已完成章节执行三层记忆更新，返回本次变更摘要。"""
+    """对已完成章节执行三层记忆更新，返回本次变更摘要。
+
+    understanding（OPT-B）：understand_chapter 的合并结果。传入时摘要与关系
+    直接复用，跳过独立的摘要/关系抽取调用（省 2 次全章输入）。
+    """
     vol = int(chapter.get("volume", 1))
     ch = int(chapter.get("chapter", 1))
-    summary = midterm.summarize_chapter(chapter, cfg)
+    if understanding is not None:
+        summary = (understanding.summary or "").strip() or midterm.summarize_chapter(chapter, cfg)
+    else:
+        summary = midterm.summarize_chapter(chapter, cfg)
     midterm.add(vol, ch, summary)
 
-    stats = _index_chapter(chapter, cfg, long_term, graph, characters)
+    relations = None
+    if understanding is not None:
+        relations = [r.model_dump() for r in understanding.relations]
+    stats = _index_chapter(chapter, cfg, long_term, graph, characters, relations=relations)
     edges = stats["relations"] if graph is not None else 0
     return {"summary": summary, "scenes": stats["scenes"], "relations": edges}
 
@@ -146,7 +161,7 @@ def extract_relations(chapter: dict, characters: list[dict], cfg: Config) -> lis
         "只使用已建档角色名单中的名字；每条给出关系类型（1-4 字）与一句备注；最多 5 条；没有则返回空列表。"
     )
     user = (
-        f"本章：{json.dumps(chapter, ensure_ascii=False)}\n"
+        f"{chapter_plaintext(chapter)}\n"
         f"已建档角色名单：{json.dumps(known, ensure_ascii=False)}\n"
         "请输出本章人物关系。"
     )

@@ -1,5 +1,5 @@
 """核心数据模型（F03）。"""
-from .chapter import Chapter, SceneBlock
+from .chapter import Chapter, SceneBlock, chapter_plaintext
 from .character import Character
 from .concept import Concept
 from .outline import Outline, VolumePlan, WriterPacket
