@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { api } from '../api/client.js'
 
 // 创作对话面板：多轮讨论 + 「提出方案」应用到表单
-export default function ChatPanel({ projectId, context, title, target, onApply, placeholder }) {
+export default function ChatPanel({ projectId, context, title, target, onApply, placeholder, hidePropose = false }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -147,9 +147,11 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
           onKeyDown={(e) => e.key === 'Enter' && send()}
           placeholder={placeholder ?? '和 AI 讨论…'}
         />
-        <button className="btn-ghost text-sm whitespace-nowrap px-4" disabled={busy} onClick={propose}>
-          提出方案
-        </button>
+        {!hidePropose && (
+          <button className="btn-ghost text-sm whitespace-nowrap px-4" disabled={busy} onClick={propose}>
+            提出方案
+          </button>
+        )}
         <button className="btn-primary text-sm whitespace-nowrap px-5" disabled={busy || !input.trim()} onClick={send}>
           发送
         </button>

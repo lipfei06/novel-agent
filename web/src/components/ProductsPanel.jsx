@@ -4,8 +4,9 @@ import RelationGraph from './RelationGraph.jsx'
 import ChatPanel from './ChatPanel.jsx'
 import TechniquePanel from './TechniquePanel.jsx'
 
-// 作品设定区：选题 / 世界观 / 人物 / 总纲 / 手法 —— 只创建一次，之后点开表单即可修改
+// 作品设定区：全局规划 / 选题 / 世界观 / 人物 / 总纲 / 手法 —— 只创建一次，之后点开表单即可修改
 const TABS = [
+  ['chief', '全局规划'],
   ['concept', '选题立项'],
   ['world_bible', '世界观'],
   ['characters', '人物'],
@@ -15,7 +16,7 @@ const TABS = [
 
 export default function ProductsPanel({ projectId, autoCollapse = false }) {
   const [data, setData] = useState(null)
-  const [tab, setTab] = useState('concept')
+  const [tab, setTab] = useState('chief')
   const [open, setOpen] = useState(!autoCollapse)
 
   // 流水线进入章节阶段时自动收起（作者仍可手动展开）
@@ -64,6 +65,15 @@ export default function ProductsPanel({ projectId, autoCollapse = false }) {
                   </button>
                 ))}
               </div>
+              {tab === 'chief' && (
+                <ChatPanel
+                  projectId={projectId}
+                  context="chief"
+                  title="全局规划顾问 · 站在全书高度帮你把控方向"
+                  hidePropose
+                  placeholder="问方向、问节奏、问风险：如'目前伏笔回收得怎么样''接下来该写什么''哪里有问题'"
+                />
+              )}
               {tab === 'concept' && (
                 <div className="space-y-4">
                   <ChatPanel

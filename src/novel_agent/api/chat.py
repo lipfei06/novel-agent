@@ -16,7 +16,7 @@ from novel_agent.storage import ProjectPaths
 
 MAX_HISTORY = 20  # 每次发给模型的历史条数上限（超出只发最近 N 条）
 
-CHAT_CONTEXTS = ("concept", "world", "characters", "outline")
+CHAT_CONTEXTS = ("chief", "concept", "world", "characters", "outline")
 
 # 动态场景白名单：chapter_{vol}_{ch} / volume_{vol}
 _CONTEXT_RE = re.compile(r"^(?:chapter_\d+_\d+|volume_\d+)$")
@@ -154,7 +154,63 @@ def _volume_grounding(values: dict, root: Path, project_id: str, vol: int) -> st
     return "\n<项目资料（建议必须基于这些资料，引用具体设定与伏笔）>\n" + "\n".join(parts) + "\n</项目资料>\n"
 
 
+def _chief_system(values: dict, cfg: Config, root: Path, project_id: str) -> str:
+    """全局规划顾问（总编辑）：全书接地——进度/卷结构/摘要/状态/伏笔/道具事实。"""
+    from novel_agent.agents.packet import collect_pending_foreshadow
+
+    chapters = values.get("chapters") or {}
+    total_words = sum(
+        len(s.get("text", "")) for ch in chapters.values() for s in (ch.get("scenes") or [])
+    )
+    keys = sorted(chapters.keys(), key=lambda k: [int(x) for x in str(k).split("_")])
+    cur_vol = int(keys[-1].split("_")[0]) if keys else 1
+    cur_ch = int(keys[-1].split("_")[1]) if keys else 0
+
+    parts = [f"全书进度：已写 {len(chapters)} 章 / 约 {total_words} 字，当前位于卷{cur_vol}第{cur_ch}章之后"]
+    outline = values.get("outline") or {}
+    vols = outline.get("volumes") or []
+    if vols:
+        parts.append(
+            "卷结构（含计划章数）："
+            + "；".join(f"卷{v.get('volume')}《{v.get('title')}》计划{v.get('chapter_count', '?')}章" for v in vols)
+        )
+
+    grounding = _outline_grounding(values, root, project_id)
+    if grounding:
+        parts.append(grounding.strip())
+
+    event_ledger = values.get("event_ledger") or {}
+    if event_ledger:
+        recent = []
+        for k in sorted(event_ledger.keys(), key=lambda x: [int(p) for p in str(x).split("_")])[-6:]:
+            recent.append(f"第{k.split('_')[1]}章：" + "；".join(event_ledger[k]))
+        parts.append("最近事件：\n" + "\n".join(recent)[:1500])
+
+    prop_registry = values.get("prop_registry") or {}
+    if prop_registry:
+        plines = [f"{name}：{'；'.join(e.get('facts', [])[-4:])}" for name, e in prop_registry.items()]
+        parts.append("道具/证据既定事实（正典，不可当不存在）：\n" + "\n".join(plines)[:1200])
+
+    ledger = collect_pending_foreshadow(values.get("writer_packets"))
+    if ledger:
+        parts.append("待回收伏笔：\n" + "\n".join(f"- 第{i.get('chapter', '?')}章埋：{i.get('desc', '')}" for i in ledger)[:800])
+
+    return (
+        "你是这本书的**总编辑**，站在全书高度帮作者把控创作方向。你的职责：\n"
+        "- 评估进度与结构：节奏是否拖沓、爽点密度、高潮与收束的布局是否合理\n"
+        "- 指出风险：伏笔回收状态、人物线是否悬空、设定或桥段的重复与矛盾\n"
+        "- 给出后续规划建议：接下来几章写什么、何时埋/收伏笔、何时进入高潮\n"
+        "\n【硬性约束】\n"
+        "- 每个判断必须引用具体章节号、人物名或道具事实作为依据\n"
+        "- 区分'已确立事实'与'你的推测'，不确定就明说\n"
+        "- 建议要可执行：落到'接下来 2~3 章怎么写'的粒度\n"
+        "\n【全书资料】\n" + "\n\n".join(parts)
+    )
+
+
 def _system_for(context: str, values: dict, cfg: Config, root: Path, project_id: str) -> str:
+    if context == "chief":
+        return _chief_system(values, cfg, root, project_id)
     if context == "concept":
         c = values.get("concept")
         current = f"当前立项书：{json.dumps(c, ensure_ascii=False)}\n" if c else "尚未生成立项书。\n"
@@ -251,8 +307,8 @@ def chat_reply(project_id: str, context: str, message: str, root: Path, cfg: Con
             "用编号步骤说明方案，让作者一目了然、便于快速阅读。"
         )
         msgs = [{"role": "system", "content": system}] + history[-MAX_HISTORY:]
-        # 规划类助手（总纲/卷）用 creative 档提升讨论质量，其余保持 cheap
-        tier = "creative" if (context == "outline" or context.startswith("volume_")) else "cheap"
+        # 规划类助手（总编/总纲/卷）用 creative 档提升讨论质量，其余保持 cheap
+        tier = "creative" if (context in ("outline", "chief") or context.startswith("volume_")) else "cheap"
         llm = get_chat_model(tier, cfg)
         resp = llm.invoke(msgs)
         from novel_agent.llm.cost import extract_usage
