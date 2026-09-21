@@ -38,6 +38,26 @@ def _price_for(cfg_cost: dict | None, model: str | None) -> tuple[float, float]:
         return _DEFAULT_PRICE
 
 
+def extract_usage(response) -> dict | None:
+    """从 LangChain AI 响应中提取 usage（兼容多种键位）。
+
+    ChatOpenAI 的 response_metadata 键是 token_usage；部分后端是 usage；
+    新标准在 AIMessage.usage_metadata（input_tokens 等键名）。取不到返回 None。
+    """
+    meta = getattr(response, "response_metadata", {}) or {}
+    u = meta.get("usage") or meta.get("token_usage")
+    if u:
+        return u
+    um = getattr(response, "usage_metadata", None)
+    if um:
+        return {
+            "prompt_tokens": um.get("input_tokens"),
+            "completion_tokens": um.get("output_tokens"),
+            "total_tokens": um.get("total_tokens"),
+        }
+    return None
+
+
 def record_usage(usage: dict | None, model: str | None = None) -> None:
     """记录一次 LLM 调用的 token usage 到当前项目的 cost.json（按模型分桶）。"""
     if not usage:

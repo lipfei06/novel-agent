@@ -187,13 +187,10 @@ def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 2):
             time.sleep(min(2 ** (attempt - 1), 4))
         try:
             response = bound.invoke(msgs)
-            from .cost import record_usage
+            from .cost import extract_usage, record_usage
 
             model_name = getattr(llm, "model_name", None) or getattr(llm, "model", "")
-            record_usage(
-                (getattr(response, "response_metadata", {}) or {}).get("usage"),
-                model=str(model_name) if model_name else None,
-            )
+            record_usage(extract_usage(response), model=str(model_name) if model_name else None)
             data = _extract_json(response.content)
             parsed = _validate_or_coerce(schema, data)
             if parsed is not None:

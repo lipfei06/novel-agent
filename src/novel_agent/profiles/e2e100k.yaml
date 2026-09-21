@@ -1,0 +1,22 @@
+id: e2e100k
+name: 真假千金十万字E2E
+target_word_count: 100000
+default_volumes: 2
+chapters_per_volume: 10
+words_per_chapter: 5000
+world_requirements:
+  - 豪门家族格局与继承权规则
+  - 商战线（集团/股权/项目）
+  - 人物关系网（真假千金/继母/祖母/男主）
+  - 时间线（认亲→排挤→反击→归位）
+red_lines:
+  - 违反平台合规的敏感内容
+  - 明显的设定前后矛盾
+style_preset:
+  pace: "快节奏，每3章一次小打脸，每卷一次大打脸"
+  dialogue_ratio: 0.45
+  show_vs_tell: 0.6
+  hook_frequency: "每章结尾留钩子"
+  tone: "爽感直给，情绪张力足，不拖沓"
+  pov: "真千金视角为主"
+  sensitivity: "平台合规尺度"

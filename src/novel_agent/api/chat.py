@@ -255,7 +255,9 @@ def chat_reply(project_id: str, context: str, message: str, root: Path, cfg: Con
         tier = "creative" if (context == "outline" or context.startswith("volume_")) else "cheap"
         llm = get_chat_model(tier, cfg)
         resp = llm.invoke(msgs)
-        record_usage((getattr(resp, "response_metadata", {}) or {}).get("usage"))
+        from novel_agent.llm.cost import extract_usage
+
+        record_usage(extract_usage(resp))
         content = resp.content
         # 兼容 content 为列表（部分 OpenAI 兼容模型返回结构化片段）
         if isinstance(content, list):
@@ -376,7 +378,9 @@ def summarize_chat_design(messages: list[dict], cfg: Config) -> str:
     user = f"对话记录：\n{transcript}"
     llm = get_chat_model("cheap", cfg)
     resp = llm.invoke([{"role": "system", "content": system}, {"role": "user", "content": user}])
-    record_usage((getattr(resp, "response_metadata", {}) or {}).get("usage"))
+    from novel_agent.llm.cost import extract_usage
+
+    record_usage(extract_usage(resp))
     return str(resp.content)
 
 

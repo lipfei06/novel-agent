@@ -206,6 +206,9 @@ def start_run(project_id: str, body: StartRunIn, request: Request) -> dict:
         "messages": [],
     }
     try:
+        from novel_agent.llm.cost import set_project
+
+        set_project(project_id, request.app.state.root)
         runtime.graph.invoke(initial, runtime.thread)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"启动创作失败：{exc}") from exc
@@ -223,6 +226,20 @@ def confirm(project_id: str, body: ConfirmIn, request: Request) -> dict:
 
     runtime = store.get_or_create(project_id, meta.genre)
     if _interrupt_payload(runtime) is None:
+        st = runtime.graph.get_state(runtime.thread)
+        if st.next:
+            # 上一节点崩溃（如预算超限/LLM 故障）导致停在"有断点、无确认点"状态：
+            # 从 checkpoint 恢复执行，让作者修完原因后 confirm 即可续跑
+            from novel_agent.llm.cost import set_project
+
+            set_project(project_id, request.app.state.root)
+            try:
+                runtime.graph.invoke(None, runtime.thread)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"断点恢复失败：{exc}") from exc
+            return _confirm_view(runtime)
         # 没有待确认点（已完成或未开始）
         return _confirm_view(runtime)
 
@@ -230,6 +247,10 @@ def confirm(project_id: str, body: ConfirmIn, request: Request) -> dict:
     if body.data is not None:
         resume["data"] = body.data
     try:
+        from novel_agent.llm.cost import set_project
+
+        # cost 记账走线程局部变量，必须在执行 LLM 调用的本线程上标记项目
+        set_project(project_id, request.app.state.root)
         runtime.graph.invoke(Command(resume=resume), runtime.thread)
     except HTTPException:
         raise

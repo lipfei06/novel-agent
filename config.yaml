@@ -48,8 +48,8 @@ rag:
 token_budget:                       # 每环节 prompt 上限（字符级保护；DeepSeek 支持长上下文）
   write: 40000                      # 5 章全文窗口 + RAG + 指令的余量
   edit: 6000
-  check: 12000
-  editorial: 16000
+  check: 20000                      # 正文(5000字档)+对照资料：12000 会在长章节超限
+  editorial: 24000                  # 全书收尾审校：多章材料聚合，预留余量
   export: 2000
 
 library:                            # 写作基础库（M0 启用）
