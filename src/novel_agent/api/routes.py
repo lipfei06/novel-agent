@@ -415,7 +415,10 @@ def _build_writing_context(values: dict, packet, cfg: Config, root: Path, projec
     mid_p, vec_p, graph_p = _mem_paths(root, project_id)
     parts = []
     full_window = int(cfg.memory.get("full_window", 1))
-    all_keys = sorted((values.get("chapters") or {}).keys())
+    all_keys = sorted(
+        (values.get("chapters") or {}).keys(),
+        key=lambda k: [int(x) for x in str(k).split("_")],
+    )
     recent_keys = set(all_keys[-full_window:])
     short = _bounded(get_short_term(values.get("chapters") or {}, full_window), 12000)
     midterm = MidTermMemory(mid_p)
