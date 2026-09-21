@@ -96,7 +96,7 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
           还没有分卷。用「AI 生成全部卷」依据总纲自动规划，或「手工新增卷」。
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4">
           {volumes.map((v) => (
             <div key={v.volume} className="card p-5">
               <div className="flex items-start justify-between">

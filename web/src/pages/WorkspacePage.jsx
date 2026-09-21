@@ -147,10 +147,19 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
 
       {error && <div className="mb-4 rounded border border-red-200 bg-red-50 dark:bg-red-900/20 dark:text-red-300 text-red-700 px-4 py-3 text-sm">{error}</div>}
 
-      {/* 当前确认点：仅全书级环节（设定/终审/导出）；章节级确认在「新建章节」页处理 */}
-      {view && !view.done && !isChapterStage && (
+      {/* 确认点：有 stage 才渲染确认卡；空确认（断点待恢复/环节间瞬态）显示恢复条 */}
+      {view && !view.done && view.stage && (
         <div className="mb-6">
           <ConfirmView view={view} onSubmit={submit} busy={busy} auto={auto} onAutoChange={setAuto} />
+        </div>
+      )}
+      {view && !view.done && !view.stage && (
+        <div className="mb-6 card p-4 flex items-center gap-3 flex-wrap">
+          <span className="text-sm">创作流程停在半程（上次生成未走完确认）。</span>
+          <button className="btn-primary text-xs" disabled={busy} onClick={() => submit({ action: 'accept' })}>
+            {busy ? '恢复中…' : '▶ 恢复并继续'}
+          </button>
+          <span className="text-xs text-muted">点击后从断点继续执行生成流程</span>
         </div>
       )}
 
