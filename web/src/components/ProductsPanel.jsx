@@ -13,10 +13,15 @@ const TABS = [
   ['techniques', '手法'],
 ]
 
-export default function ProductsPanel({ projectId }) {
+export default function ProductsPanel({ projectId, autoCollapse = false }) {
   const [data, setData] = useState(null)
   const [tab, setTab] = useState('concept')
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(!autoCollapse)
+
+  // 流水线进入章节阶段时自动收起（作者仍可手动展开）
+  useEffect(() => {
+    if (autoCollapse) setOpen(false)
+  }, [autoCollapse])
 
   const load = () => api.products(projectId).then(setData).catch(() => {})
 

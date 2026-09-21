@@ -152,9 +152,12 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
         </div>
       )}
 
-      {/* 设定区（选题/世界/人物/总纲：创建后可编辑） */}
+      {/* 设定区（选题/世界/人物/总纲：创建后可编辑）；章节阶段自动收起，避免与确认卡争夺注意力 */}
       <div className="mb-6">
-        <ProductsPanel projectId={projectId} />
+        <ProductsPanel
+          projectId={projectId}
+          autoCollapse={!!view && ['stage4b', 'stage5', 'stage6', 'stage8', 'stage9'].includes(view.stage)}
+        />
       </div>
 
       {/* 创作区：设定未完成 → 引导创建；完成 → 卷/章管理 */}
