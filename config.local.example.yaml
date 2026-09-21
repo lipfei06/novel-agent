@@ -1,26 +1,26 @@
-# 本地模型配置示例：复制为 config.yaml 后使用（或按需合并 llm 段）
-# 支持 Ollama / LM Studio / vLLM / llama.cpp server 等一切 OpenAI 兼容服务
+# 本地模型配置示例（按本机 Ollama 实际库存：gemma4:e4b / deepseek-r1:7b）
+# 复制为 config.yaml 后使用。支持 Ollama / LM Studio / vLLM 等一切 OpenAI 兼容服务。
 #
-# 启动示例（Ollama）:
-#   ollama pull qwen2.5:14b
-#   ollama pull bge-m3          # 如需语义检索（embedding 模型）
-#   ollama serve
+# 重要：Ollama 默认上下文只有 4k，长章节会被静默截断。启动前设置：
+#   set OLLAMA_CONTEXT_LENGTH=32768    （Windows）
+#   export OLLAMA_CONTEXT_LENGTH=32768 （Linux/Mac）
+# 然后重启 ollama serve。
 #
-# 建议模型：写作/规划档 ≥14B 且上下文 ≥32k（如 qwen2.5:14b、deepseek-r1:14b）；
-#          cheap 档可用 7B（如 qwen2.5:7b）。上下文小于 32k 时务必同步调低 token_budget。
+# 可选：语义检索需要 embedding 模型（ollama pull bge-m3），不配置则自动回退内置 bigram 检索。
 
-genre: e2e100k                        # 题材 profile 不变
+genre: e2e100k
 
 llm:
-  # base_url 指向本地服务；api_key_env 留空（本地无需密钥，工厂自动用占位符）
-  creative: { model: "qwen2.5:14b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.8, max_tokens: 8192 }
-  writer:   { model: "qwen2.5:14b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.9, max_tokens: 8192 }
-  editor:   { model: "qwen2.5:14b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.3, max_tokens: 4096 }
-  cheap:    { model: "qwen2.5:7b",  base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.7, max_tokens: 4096 }
-  # LM Studio 示例: base_url: "http://127.0.0.1:1234/v1"
-  # vLLM   示例: base_url: "http://127.0.0.1:8001/v1"
+  # 四档统一用 gemma4:e4b（中文写作质量优于 7B，json 遵循度实测可用）
+  creative: { model: "gemma4:e4b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.8, max_tokens: 8192 }
+  writer:   { model: "gemma4:e4b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.9, max_tokens: 8192 }
+  editor:   { model: "gemma4:e4b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.3, max_tokens: 4096 }
+  cheap:    { model: "gemma4:e4b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.7, max_tokens: 4096 }
+  # 备选：deepseek-r1:7b 是推理模型，适合 editor 档（批判性审查更狠），
+  # 但输出带 <think> 思考段（系统已自动剥离）且更耗输出配额，建议 editor 专用：
+  # editor: { model: "deepseek-r1:7b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.3, max_tokens: 6000 }
 
-token_budget:                         # 本地模型上下文有限，按模型窗口调低（8k 窗口模型再减半）
+token_budget:                         # 本地上下文有限（e4b 实测建议 ≤32k token），按此预算可稳跑
   write: 24000
   edit: 6000
   check: 12000
@@ -28,13 +28,13 @@ token_budget:                         # 本地模型上下文有限，按模型�
   export: 2000
 
 memory:
-  short_window: 2                     # 本地窗口小：全文窗口缩到 2 章，其余靠摘要
+  short_window: 2                     # 本地窗口小：全文 2 章，其余靠摘要
   full_window: 1
   vector:
-    embedding:                        # 可选：本地 embedding（不配则回退内置 bigram 检索）
+    embedding:                        # 可选：需先 ollama pull bge-m3；删除此段则回退内置 bigram 检索
       model: "bge-m3"
       base_url: "http://127.0.0.1:11434/v1"
-      api_key_env: ""                 # Ollama 通常不需要
+      api_key_env: ""
       dim: 1024
 
-rag: { top_k: 3 }                     # 本地上下文有限，召回条数同步收紧
+rag: { top_k: 3 }

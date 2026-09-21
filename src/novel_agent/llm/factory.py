@@ -80,6 +80,7 @@ def _extract_json(text) -> object:
     if isinstance(text, (dict, list)):
         return text
     s = str(text or "").strip()
+    s = re.sub(r"<think>.*?</think>", "", s, flags=re.S).strip()  # 推理类模型（deepseek-r1 等）先剥离思考段
     s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s).strip()
     # 整体就是合法 JSON（含裸字符串/数字/布尔/对象/数组）→ 直接解析
     try:
