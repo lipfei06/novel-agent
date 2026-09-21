@@ -16,19 +16,31 @@ class VolumePlanList(BaseModel):
 
     items: list[VolumePlan] = Field(default_factory=list)
 
-SYSTEM_PROMPT = """你是一位卷规划师。依据全书总纲逐卷细化：本卷事件弧、要埋/收的伏笔、章数安排、卷末悬念。
-保持与总纲一致，卷数不增不减。"""
+SYSTEM_PROMPT = """你是一位卷规划师。依据全书总纲逐卷细化：本卷事件弧、要埋/收的伏笔、卷末悬念。
+保持与总纲一致，卷数与每卷 chapter_count 不增不减（章数以上方给定值为准，只细化剧情内容）。"""
 
 
 def generate_volume_plans(outline: Outline | dict, cfg: Config) -> list[VolumePlan]:
     outline_data = outline.model_dump() if hasattr(outline, "model_dump") else dict(outline)
     if is_mock():
         return _mock_plans(outline_data, cfg)
-    user = f"总纲：{json.dumps(outline_data, ensure_ascii=False)}\n请细化各卷。"
+    per_vol = int(cfg.genre.chapters_per_volume or 0)
+    if per_vol > 0:
+        outline_data["volumes"] = [
+            {**v, "chapter_count": per_vol} for v in outline_data.get("volumes", []) or []
+        ]
+    user = (
+        f"总纲：{json.dumps(outline_data, ensure_ascii=False)}\n"
+        f"请细化各卷。每卷章数安排以上述 chapter_count 为准，不得增减。"
+    )
     messages = build_messages(SYSTEM_PROMPT, user, "volume_plan", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("creative", cfg)
     result = invoke_structured(llm, messages, schema=VolumePlanList)
-    return result.items
+    plans = result.items
+    # 章数硬绑定：卷规划只细化剧情，长度归配置（LLM 自定章数会偏离全书字数目标）
+    if per_vol > 0:
+        plans = [vp.model_copy(update={"chapter_count": per_vol}) for vp in plans]
+    return plans
 
 
 def _mock_plans(outline: dict, cfg: Config) -> list[VolumePlan]:

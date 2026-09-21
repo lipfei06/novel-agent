@@ -30,11 +30,19 @@ def generate_outline(
         f"立项书：{json.dumps(concept_data, ensure_ascii=False)}\n"
         f"世界观：{json.dumps(world_data, ensure_ascii=False)}\n"
         f"人物：{json.dumps(chars, ensure_ascii=False)}\n"
+        f"全书目标字数约 {cfg.genre.target_word_count} 字，分 {volumes} 卷，"
+        f"每卷固定 {cfg.genre.chapters_per_volume} 章（每卷的 chapter_count 必须恰好等于该值，不得增减）。\n"
         f"请设计 {volumes} 卷的总纲。"
     )
     messages = build_messages(SYSTEM_PROMPT, user, "outline", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("creative", cfg)
-    return invoke_structured(llm, messages, schema=Outline)
+    outline = invoke_structured(llm, messages, schema=Outline)
+    # 章数硬绑定（LLM 自定章数会偏离全书字数目标：剧情内容归 LLM，长度归配置）
+    per_vol = int(cfg.genre.chapters_per_volume or 0)
+    if per_vol > 0 and outline.volumes:
+        for v in outline.volumes:
+            v.chapter_count = per_vol
+    return outline
 
 
 def _mock_outline(concept: dict, volumes: int, chapters_per_volume: int = 20) -> Outline:
