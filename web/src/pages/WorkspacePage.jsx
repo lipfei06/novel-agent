@@ -119,7 +119,7 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
   if (error && !meta && !products) return <div className="p-8 text-red-600 text-sm">{error}</div>
 
   return (
-    <div className="max-w-4xl mx-auto px-8 py-8">
+    <div className="max-w-7xl mx-auto px-8 py-8">
       {/* 标题区 */}
       <div className="flex items-end justify-between mb-6">
         <div>
@@ -147,8 +147,8 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
 
       {error && <div className="mb-4 rounded border border-red-200 bg-red-50 dark:bg-red-900/20 dark:text-red-300 text-red-700 px-4 py-3 text-sm">{error}</div>}
 
-      {/* 确认点：有 stage 才渲染确认卡；空确认（断点待恢复/环节间瞬态）显示恢复条 */}
-      {view && !view.done && view.stage && (
+      {/* 确认点：有 stage 才渲染确认卡（章节级确认归「新建章节」页）；空确认（断点待恢复/环节间瞬态）显示恢复条 */}
+      {view && !view.done && view.stage && !isChapterStage && (
         <div className="mb-6">
           <ConfirmView view={view} onSubmit={submit} busy={busy} auto={auto} onAutoChange={setAuto} />
         </div>
@@ -163,23 +163,22 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
         </div>
       )}
 
-      {/* 设定区（选题/世界/人物/总纲：创建后可编辑）；章节阶段自动收起 */}
-      <div className="mb-6">
-        <ProductsPanel
-          projectId={projectId}
-          autoCollapse={isChapterStage}
-        />
-      </div>
-
-      {/* 创作区：设定未完成 → 引导创建；完成 → 卷/章管理 */}
+      {/* 创作区（宽屏双栏）：左=作品设定与全局顾问，右=分卷与章节管理 */}
       {setupDone ? (
-        <VolumeManager
-          projectId={projectId}
-          products={products}
-          onProductsChange={reloadProducts}
-          onOpenChapter={onOpenChapter}
-          onNewChapter={onNewChapter}
-        />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div className="space-y-6 min-w-0">
+            <ProductsPanel projectId={projectId} />
+          </div>
+          <div className="space-y-6 min-w-0">
+            <VolumeManager
+              projectId={projectId}
+              products={products}
+              onProductsChange={reloadProducts}
+              onOpenChapter={onOpenChapter}
+              onNewChapter={onNewChapter}
+            />
+          </div>
+        </div>
       ) : (
         <SetupArea
           projectId={projectId}
