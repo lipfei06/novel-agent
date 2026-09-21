@@ -238,21 +238,61 @@ export default function StageView({ stage, payload, onSubmit, busy }) {
 
     case 'stage4b': {
       const p = payload
+      const conflicts = (p.conflicts ?? []).filter(Boolean)
+      const beats = (p.beats ?? [])
+        .map((b, i) => ({ n: i + 1, text: (b.desc || b.type || '').trim() }))
+        .filter((b) => b.text)
+      const foreshadow = (p.foreshadow ?? []).filter((f) => (f.desc ?? '').trim())
+      const seeds = (p.reference_seeds ?? []).filter(Boolean)
       return (
-        <div className="card p-5">
-          <h3 className="text-base font-medium mb-3">{p.title || `第${p.chapter}章`}</h3>
-          <Field label="本章目标" value={p.goal} />
-          <Field label="冲突" value={p.conflicts} />
-          <Field label="章节钩子" value={p.hook} />
-          <Field label="出场人物" value={p.characters} />
-          <Field label="叙事视角" value={p.pov} />
-          <p className="text-xs font-semibold text-primary mt-2 mb-1">情绪节拍</p>
-          {(p.beats ?? []).map((b, i) => (
-            <div key={i} className="flex gap-2 text-sm mb-1">
-              <span className="text-muted">{i + 1}.</span>
-              <span>{b.desc || b.type}</span>
+        <div className="card p-5 space-y-3">
+          {/* 头部一行：标题 + 视角 + 出场人物 */}
+          <div className="flex items-baseline gap-x-3 gap-y-1 flex-wrap">
+            <h3 className="text-base font-medium">{p.title || `第${p.chapter}章`}</h3>
+            {p.pov && <span className="text-xs text-muted">视角 · {p.pov}</span>}
+            {(p.characters ?? []).length > 0 && (
+              <span className="text-xs text-muted">出场 · {p.characters.join('、')}</span>
+            )}
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-primary mb-0.5">本章目标</p>
+            <p className="text-sm leading-6">{p.goal}</p>
+          </div>
+          {conflicts.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-primary mb-0.5">冲突</p>
+              <ul className="text-sm leading-6 list-disc pl-4 marker:text-muted space-y-0.5">
+                {conflicts.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
             </div>
-          ))}
+          )}
+          {p.hook && (
+            <div>
+              <p className="text-xs font-semibold text-primary mb-0.5">章节钩子</p>
+              <p className="text-sm leading-6">{p.hook}</p>
+            </div>
+          )}
+          {beats.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-primary mb-0.5">情绪节拍</p>
+              <p className="text-sm leading-6">
+                {beats.map((b) => `${b.n}. ${b.text}`).join('　')}
+              </p>
+            </div>
+          )}
+          {foreshadow.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-primary mb-0.5">伏笔</p>
+              <ul className="text-sm leading-6 list-disc pl-4 marker:text-muted space-y-0.5">
+                {foreshadow.map((f, i) => (
+                  <li key={i}>{f.kind === 'payoff' ? '【回收】' : '【埋设】'}{f.desc}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {seeds.length > 0 && (
+            <p className="text-xs text-muted">检索种子 · {seeds.join(' / ')}</p>
+          )}
         </div>
       )
     }
