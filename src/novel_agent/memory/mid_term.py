@@ -69,7 +69,7 @@ class MidTermMemory:
         )
         user = f"本章：\n{chapter_plaintext(chapter)}"
         messages = build_messages(system, user, "summary", cfg.token_budget)
-        llm = get_chat_model("cheap", cfg)
+        llm = get_chat_model("cheap", cfg, task="summary")  # 任务级覆写：摘要可路由到本地模型
         result = invoke_structured(llm, messages, schema=ChapterSummary)
         text = (result.summary or "").strip()
         if not text:
@@ -147,7 +147,7 @@ class MidTermMemory:
             + "\n".join(f"{k}：{s}" for k, s in sorted(chapter_sums.items()))
         )
         messages = build_messages(system, user, "research", cfg.token_budget)
-        llm = get_chat_model("cheap", cfg)
+        llm = get_chat_model("cheap", cfg, task="summary")  # 任务级覆写：摘要可路由到本地模型
         result = invoke_structured(llm, messages, schema=VolumeSummary)
         s = (result.summary or "").strip()
         if not s:

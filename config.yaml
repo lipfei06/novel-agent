@@ -13,6 +13,11 @@ llm:
   writer:   { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.9, max_tokens: 8192 }
   editor:   { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.3, max_tokens: 4096 }
   cheap:    { model: "deepseek-chat", base_url: "https://api.deepseek.com/v1", api_key_env: "DEEPSEEK_API_KEY", temperature: 0.7, max_tokens: 4096 }
+  local:    { model: "gemma4:e4b", base_url: "http://127.0.0.1:11434/v1", api_key_env: "", temperature: 0.7, max_tokens: 4096 }
+
+# 任务级模型覆写（可选）：把指定任务路由到其他档位，切换模型只改这里
+model_overrides:
+  summary: local          # 章/卷摘要走本地 Ollama（省云端调用；删掉此行即回退 deepseek）
 
 memory:
   short_window: 4                   # 兼容保留：旧版全文章数（现由 full_window 接管）

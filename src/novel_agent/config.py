@@ -60,6 +60,7 @@ class Config:
     consistency: dict = field(default_factory=dict)
     cost: dict = field(default_factory=dict)
     writer: dict = field(default_factory=dict)
+    model_overrides: dict = field(default_factory=dict)  # 任务级模型覆写：{任务名: 档位名}
 
     def tier(self, name: str) -> ModelTier:
         if name not in self.tiers:
@@ -139,6 +140,7 @@ def load_config(path: str | Path = "config.yaml", genre: str | None = None) -> C
         consistency=dict(raw.get("consistency", {})),
         cost=dict(raw.get("cost", {})),
         writer=dict(raw.get("writer", {})),
+        model_overrides=dict(raw.get("model_overrides", {})),
     )
 
 

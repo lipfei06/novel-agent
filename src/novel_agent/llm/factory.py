@@ -10,11 +10,14 @@ from novel_agent.config import Config, ModelTier
 _PLACEHOLDER_KEY = "not-set"
 
 
-def get_chat_model(tier: str, cfg: Config) -> ChatOpenAI:
-    """按档位（creative/writer/editor/cheap）返回 ChatOpenAI。
-
-    api_key 缺失时用占位符，构造不报错；真实调用前必须配置环境变量。
-    """
+def get_chat_model(tier: str, cfg: Config, task: str | None = None) -> ChatOpenAI:
+    """按档位返回 ChatOpenAI。task 给定时，可被 cfg.model_overrides[task] 覆写档位
+    （任务级模型路由：如 summary→local，切换只需改配置）。"""
+    overrides = getattr(cfg, "model_overrides", None) or {}
+    if task and task in overrides:
+        overridden = str(overrides[task])
+        if overridden in cfg.tiers:
+            tier = overridden
     t: ModelTier = cfg.tier(tier)
     return ChatOpenAI(
         model=t.model,
