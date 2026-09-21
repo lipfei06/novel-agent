@@ -1,9 +1,21 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import ChatPanel from './ChatPanel.jsx'
+import ConfirmView from './ConfirmView.jsx'
 
 // 卷/章管理：卷可新增/编辑；点「新建章节」跳转独立页面；点章节跳转查看/修改页
-export default function VolumeManager({ projectId, products, onProductsChange, onOpenChapter, onNewChapter }) {
+export default function VolumeManager({
+  projectId,
+  products,
+  onProductsChange,
+  onOpenChapter,
+  onNewChapter,
+  pendingView,
+  onConfirmSubmit,
+  confirmBusy,
+  auto,
+  onAutoChange,
+}) {
   const [volumes, setVolumes] = useState([])
   const [selected, setSelected] = useState(null) // 当前查看的卷号
   const [route, setRoute] = useState('list') // list | newVol | editVol
@@ -101,7 +113,14 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
             <div key={v.volume} className="card p-5">
               <div className="flex items-start justify-between">
                 <div>
-                  <h4 className="font-medium">卷{v.volume} · {v.title}</h4>
+                  <h4 className="font-medium">
+                    卷{v.volume} · {v.title}
+                    {pendingView && pendingView.current_volume === v.volume && (
+                      <span className="ml-2 align-middle text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 rounded px-2 py-0.5">
+                        待确认
+                      </span>
+                    )}
+                  </h4>
                   <p className="text-xs text-muted mt-1">{(v.event_arc ?? []).join(' / ') || '—'}</p>
                 </div>
                 <span className="text-xs text-muted whitespace-nowrap">已写 {chapterCount(v.volume)} 章</span>
@@ -133,6 +152,17 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
                   {selected === v.volume ? '收起章节' : '查看章节'}
                 </button>
               </div>
+              {pendingView && pendingView.current_volume === v.volume && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <ConfirmView
+                    view={pendingView}
+                    onSubmit={onConfirmSubmit}
+                    busy={confirmBusy}
+                    auto={auto}
+                    onAutoChange={onAutoChange}
+                  />
+                </div>
+              )}
               {chatVol === v.volume && (
                 <div className="mt-3 pt-3 border-t border-border">
                   <ChatPanel
