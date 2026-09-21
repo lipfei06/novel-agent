@@ -157,6 +157,17 @@ def _validate_or_coerce(schema, data):
             return None
 
 
+def _json_mode_unsupported(exc: Exception) -> bool:
+    """识别"服务端不支持 response_format=json_object"类错误（常见于本地模型服务）。"""
+    text = f"{exc}".lower()
+    return (
+        "response_format" in text
+        or "json_object" in text
+        or "json mode" in text
+        or "not supported" in text
+    )
+
+
 def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 2):
     """安全调用结构化输出：注入 json 提示与 schema 说明；解析失败自动宽松修复并重试。
 
@@ -181,12 +192,23 @@ def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 2):
         msgs.insert(0, {"role": "system", "content": system})
 
     bound = llm.bind(response_format={"type": "json_object"})
+    json_mode = True  # 本地/兼容服务不支持 json_object 时自动降级为纯提示词约束（不消耗重试次数）
     last_err: Exception | None = None
-    for attempt in range(retries + 1):
+    attempt = 0
+    while attempt <= retries:
         if attempt:
             time.sleep(min(2 ** (attempt - 1), 4))
         try:
             response = bound.invoke(msgs)
+        except Exception as exc:  # noqa: BLE001
+            if json_mode and _json_mode_unsupported(exc):
+                json_mode = False
+                bound = llm
+                continue
+            last_err = exc
+            attempt += 1
+            continue
+        try:
             from .cost import extract_usage, record_usage
 
             model_name = getattr(llm, "model_name", None) or getattr(llm, "model", "")
@@ -198,6 +220,7 @@ def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 2):
             last_err = ValueError("模型输出的内容不是规定的结构（可能只给了一段文字）")
         except Exception as exc:  # noqa: BLE001
             last_err = exc
+        attempt += 1
     raise LLMStructuredError(
         f"AI 偶发未按格式输出（已自动重试 {retries + 1} 次仍失败）。"
         f"这不是系统故障，重新点击「接受」即可继续。{last_err}"
