@@ -101,7 +101,7 @@ export default function ConfirmView({ view, onSubmit, busy, auto, onAutoChange }
           </div>
         </div>
       ) : (
-        <StageView stage={view.stage} payload={view.payload} />
+        <StageView stage={view.stage} payload={view.payload} onSubmit={onSubmit} busy={busy} />
       )}
 
       <div className="flex items-center gap-2">

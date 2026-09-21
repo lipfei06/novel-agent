@@ -429,15 +429,21 @@ def _stage6(cfg: Config):
             if high and attempts >= max_auto_fix:
                 report = report.model_copy(update={"needs_human": True})
             # 设计：一致性结果始终走人工确认（含无问题时的"通过"）
-            decision = _decide(_confirmation("stage6", "一致性检查", report.model_dump()))
+            # 载荷附场景清单（id+标题），供前端"人工修复指令"下拉定位场景
+            report_payload = report.model_dump()
+            report_payload["scenes"] = [
+                {"id": s.id, "heading": s.heading} for s in chapter.scenes
+            ]
+            decision = _decide(_confirmation("stage6", "一致性检查", report_payload))
             if decision["action"] == "regenerate":
                 continue  # 重新检查当前章节
             if decision["action"] == "edit":
                 data = decision["data"]
                 if isinstance(data, dict) and data.get("apply_edits"):
-                    # 人工提供的定点修改指令（预留）
+                    # 作者的定点修复指令：逐条改写后重新检查，再次确认
                     for fix in data.get("fixes", []):
                         chapter, _ = edit_scene(chapter, fix.get("scene_id", ""), fix.get("instruction", ""), cfg)
+                    continue
             break
         chapters = dict(state.get("chapters") or {})
         chapters[key] = chapter.model_dump()

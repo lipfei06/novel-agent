@@ -1,4 +1,85 @@
 // 各环节确认点的人类友好展示（替代裸 JSON）
+import { useState } from 'react'
+
+// stage6 专用：审查报告 + 超限警示 + 每条矛盾的作者修复指令
+function Stage6View({ r, onSubmit, busy }) {
+  const [fixes, setFixes] = useState({})
+  const issues = (r.issues ?? []).filter((i) => !i.resolved)
+  const fixed = (r.issues ?? []).filter((i) => i.resolved)
+  const exhausted = r.needs_human || (issues.length > 0 && (r.auto_fix_attempts ?? 0) >= 3)
+  const KIND_LABELS = { setting: '设定冲突', character: '人物OOC', timeline: '时间线', style: '文风', logic: '逻辑' }
+  const hasInput = Object.values(fixes).some((v) => v && v.trim())
+  const submitFixes = () => {
+    const list = Object.entries(fixes)
+      .filter(([, v]) => v && v.trim())
+      .map(([loc, instruction]) => ({ scene_id: loc, instruction: instruction.trim() }))
+    if (list.length) onSubmit?.({ action: 'edit', data: { apply_edits: true, fixes: list } })
+  }
+  return (
+    <div className="card p-5">
+      {exhausted && issues.length > 0 && (
+        <div className="rounded border border-amber-300 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-4 py-3 mb-3">
+          <p className="text-sm font-medium">⚠️ 自动修复已超限（{r.auto_fix_attempts ?? 0} 次），以下矛盾无法自动解决</p>
+          <p className="text-xs mt-1 opacity-80">
+            请阅读每条矛盾的说明与位置，选择处理方式：填写修复指令让 AI 定点修改、点「重新生成」重新检查，或判断可容忍则直接「接受」。
+          </p>
+        </div>
+      )}
+      {issues.length === 0 ? (
+        <>
+          <p className="text-sm font-medium text-green-700 dark:text-green-400">✓ 本章一致性检查通过</p>
+          {fixed.length > 0 && (
+            <p className="text-xs text-muted mt-1">已自动修复 {fixed.length} 处（{r.auto_fix_attempts} 次修复）</p>
+          )}
+          <p className="text-xs text-muted mt-2">确认后进入下一环节。</p>
+        </>
+      ) : (
+        <>
+          <p className="text-sm text-muted mb-3">
+            本章发现 {issues.length} 个待处理问题（已自动修复 {fixed.length} 处，{r.auto_fix_attempts ?? 0} 次修复）：
+          </p>
+          {issues.map((i, idx) => (
+            <div key={idx} className="rounded border border-border bg-black/[0.02] dark:bg-white/[0.03] p-3 mb-2">
+              <p className="text-sm">{i.description}</p>
+              <p className="text-xs text-muted mt-1">
+                {KIND_LABELS[i.kind] ?? i.kind}
+                {' · '}位置：{i.location}
+              </p>
+              {i.fix_action && <p className="text-xs text-primary mt-1">AI 建议：{i.fix_action}</p>}
+              {exhausted && (
+                <div className="flex gap-2 mt-2 items-center flex-wrap">
+                  <select
+                    className="input text-xs w-auto"
+                    defaultValue=""
+                    onChange={(e) => setFixes((f) => ({ ...f, [idx]: { ...f[idx], scene_id: e.target.value } }))}
+                  >
+                    <option value="" disabled>选择要修改的场景…</option>
+                    {(r.scenes ?? []).map((s) => (
+                      <option key={s.id} value={s.id}>{s.heading || s.id}</option>
+                    ))}
+                  </select>
+                  <input
+                    className="input text-xs flex-1 min-w-[200px]"
+                    placeholder="修复指令（如：把眼睛颜色改回灰色，与档案一致）"
+                    onChange={(e) => setFixes((f) => ({ ...f, [idx]: { ...f[idx], instruction: e.target.value } }))}
+                  />
+                </div>
+              )}
+            </div>
+          ))}
+          {exhausted && (
+            <div className="flex justify-end mt-2">
+              <button className="btn-primary text-sm" disabled={busy || !hasInput} onClick={submitFixes}>
+                {busy ? '修复中…' : '🔧 按指令修复并复查'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function Field({ label, value }) {
   if (value === undefined || value === null || value === '') return null
   if (Array.isArray(value)) {
@@ -53,7 +134,7 @@ function EntryList({ title, entries, fields }) {
 }
 
 // 各环节渲染器
-export default function StageView({ stage, payload }) {
+export default function StageView({ stage, payload, onSubmit, busy }) {
   if (!payload) return null
 
   switch (stage) {
@@ -176,41 +257,8 @@ export default function StageView({ stage, payload }) {
       )
     }
 
-    case 'stage6': {
-      const r = payload
-      const issues = (r.issues ?? []).filter((i) => !i.resolved)
-      const fixed = (r.issues ?? []).filter((i) => i.resolved)
-      return (
-        <div className="card p-5">
-          {issues.length === 0 ? (
-            <>
-              <p className="text-sm font-medium text-green-700 dark:text-green-400">
-                ✓ 本章一致性检查通过
-              </p>
-              {fixed.length > 0 && (
-                <p className="text-xs text-muted mt-1">已自动修复 {fixed.length} 处（{r.auto_fix_attempts} 次修复）</p>
-              )}
-              <p className="text-xs text-muted mt-2">确认后进入下一环节。</p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-muted mb-3">
-                本章发现 {issues.length} 个待处理问题（已自动修复 {fixed.length} 处，{r.auto_fix_attempts ?? 0} 次修复）：
-              </p>
-              {issues.map((i, idx) => (
-                <div key={idx} className="rounded border border-border bg-black/[0.02] dark:bg-white/[0.03] p-3 mb-2">
-                  <p className="text-sm">{i.description}</p>
-                  <p className="text-xs text-muted mt-1">
-                    {({ setting: '设定冲突', character: '人物OOC', timeline: '时间线', style: '文风', logic: '逻辑' })[i.kind] ?? i.kind}
-                    {' · '}位置：{i.location}
-                  </p>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )
-    }
+    case 'stage6':
+      return <Stage6View r={payload} onSubmit={onSubmit} busy={busy} />
 
     case 'stage8': {
       const r = payload
