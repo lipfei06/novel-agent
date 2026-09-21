@@ -380,9 +380,10 @@ class ChapterFormIn(BaseModel):
 
 def _project_ctx(request: Request, project_id: str, genre: str) -> tuple[RuntimeStore, ProjectRuntime, dict, Config]:
     """获取项目运行上下文（store/runtime/state values/config）。"""
-    from novel_agent.llm.cost import set_project
+    from novel_agent.llm.cost import set_project, set_chapter
 
     set_project(project_id, request.app.state.root)
+    set_chapter(None)  # 默认不带章节归属（章节级调用点会再显式标记）
     store: RuntimeStore = _store(request)
     runtime = store.get_or_create(project_id, genre)
     values = runtime.graph.get_state(runtime.thread).values
@@ -931,6 +932,29 @@ def chat_send(project_id: str, body: ChatIn, request: Request) -> dict:
     return {"reply": reply, "messages": history}
 
 
+@router.post("/projects/{project_id}/chat/structured")
+def chat_structured(project_id: str, body: ChatIn, request: Request) -> dict:
+    """章节助手结构化回复：基于讨论输出 本章目标/冲突/钩子（JSON），供自动化流程消费。"""
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if not valid_context(body.context):
+        raise HTTPException(status_code=400, detail="未知的对话场景")
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="消息不能为空")
+    _, _, values, cfg = _project_ctx(request, project_id, meta.genre)
+    from novel_agent.api.chat import _chat_path, chat_design_points, load_history
+
+    try:
+        out = chat_design_points(project_id, body.context, body.message, request.app.state.root, cfg, values)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"结构化回复失败：{exc}") from exc
+    history = load_history(_chat_path(request.app.state.root, project_id, body.context))
+    return {**out, "messages": history}
+
+
 @router.post("/projects/{project_id}/chat/propose")
 def chat_propose(project_id: str, body: ProposeIn, request: Request) -> dict:
     """让 AI 依据对话输出指定目标的完整方案（JSON），前端可应用到表单。"""
@@ -1116,6 +1140,9 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
                 goal=body.goal, conflicts=body.conflicts, hook=body.hook,
             )
 
+        from novel_agent.llm.cost import set_chapter
+
+        set_chapter(f"{vol}_{chapter_no}")  # 按章成本流水归属
         progress("组装写作上下文（前文/记忆/人物状态/伏笔账本）…", 45)
         memory_context, rag_context = _build_writing_context(values, packet, cfg, root, project_id)
         if discussion:
@@ -1202,8 +1229,10 @@ def _finalize_chapter(runtime, values, cfg, root: Path, project_id: str, chapter
                       author_hints: list[dict] | None = None) -> None:
     """章节落库后的收尾：三层记忆 + 主要人物状态 + 路人升级。"""
     from novel_agent.llm import get_embedder
+    from novel_agent.llm.cost import set_chapter
     from novel_agent.logutil import get_logger
 
+    set_chapter(key)  # 收尾的理解调用计入该章成本
     log = get_logger()
     mid_p, vec_p, graph_p = _mem_paths(root, project_id)
     from novel_agent.memory import LongTermMemory, MidTermMemory

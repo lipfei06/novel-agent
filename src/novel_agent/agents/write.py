@@ -5,7 +5,7 @@ import json
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured, style_directive
-from novel_agent.types import Chapter, SceneBlock, WriterPacket
+from novel_agent.types import Chapter, SceneBlock, WriterPacket, chapter_plaintext
 
 from . import is_mock
 
@@ -62,11 +62,39 @@ def generate_chapter(
     # 缓存友好（OPT-D）：跨章最稳定的记忆块前置，每章变化的 packet 随后
     user = (
         f"{extra}\nwriter_packet：{json.dumps(packet_data, ensure_ascii=False)}\n{length}\n"
+        f"本章标题必须为《{packet.title}》，不得另起标题。\n"
         f"{tech_note}{dark_note}{tool_note}{research_note}\n请写本章正文。"
     )
     messages = build_messages(SYSTEM_PROMPT, user, "write", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("writer", cfg)
-    return invoke_structured(llm, messages, schema=Chapter)
+    chapter = invoke_structured(llm, messages, schema=Chapter)
+    # 标题硬约束（写手偶发自拟标题）+ 字数核验轻修（OPT 批次发现：每章超写 20~30%）
+    chapter = chapter.model_copy(update={"title": packet.title or chapter.title})
+    target = int(getattr(cfg.genre, "words_per_chapter", 0) or 0)
+    if target:
+        chapter = tune_length(chapter, target, cfg)
+    return chapter
+
+
+def tune_length(chapter: Chapter, target_chars: int, cfg: Config) -> Chapter:
+    """字数核验：偏差 ≤25% 直接返回；超出则一轮扩写/精简轻修（保持情节与钩子不变）。"""
+    if is_mock() or not target_chars or not chapter.scenes:
+        return chapter
+    actual = sum(len(s.text or "") for s in chapter.scenes)
+    if abs(actual - target_chars) / target_chars <= 0.25:
+        return chapter
+    action = "精简" if actual > target_chars else "扩写"
+    how = "删除次要描写与重复信息，保留全部关键情节" if actual > target_chars else "补充场景细节与感官描写，保持节奏不注水"
+    user = (
+        f"{chapter_plaintext(chapter)}\n\n"
+        f"当前约 {actual} 字，{'超出' if actual > target_chars else '低于'}目标 {target_chars} 字。"
+        f"请{action}至 {target_chars} 字左右（±10%）：{how}；标题保持《{chapter.title}》不变。"
+    )
+    system = "你是小说编辑。按指令调整章节篇幅：情节、人物与钩子完全不变，只调整描写密度。"
+    messages = build_messages(system, user, "write", cfg.token_budget, style=style_directive(cfg))
+    llm = get_chat_model("writer", cfg)
+    fixed = invoke_structured(llm, messages, schema=Chapter)
+    return fixed.model_copy(update={"title": chapter.title, "volume": chapter.volume, "chapter": chapter.chapter})
 
 
 def rewrite_chapter(
@@ -115,7 +143,9 @@ def rewrite_chapter(
     )
     messages = build_messages(SYSTEM_PROMPT_REWRITE, user, "write", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("writer", cfg)
-    return invoke_structured(llm, messages, schema=Chapter)
+    fixed = invoke_structured(llm, messages, schema=Chapter)
+    # 重写保留原章标题（写手偶发自拟标题）
+    return fixed.model_copy(update={"title": existing_data.get("title", fixed.title)})
 
 
 def _mock_chapter(packet: dict) -> Chapter:

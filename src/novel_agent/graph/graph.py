@@ -238,6 +238,9 @@ def _stage5(cfg: Config):
     def node(state: NovelState) -> dict:
         vol = int(state.get("current_volume", 1))
         ch = int(state.get("current_chapter", 1))
+        from novel_agent.llm.cost import set_chapter
+
+        set_chapter(f"{vol}_{ch}")  # 按章成本流水归属
         raw_packet = (state.get("writer_packets") or {}).get(f"{vol}_{ch}")
         if not raw_packet:
             raise ValueError(f"缺少第{vol}卷第{ch}章的章级规划，请先完成章级规划环节")
@@ -471,6 +474,9 @@ def _stage7(cfg: Config):
     def node(state: NovelState) -> dict:
         vol = int(state.get("current_volume", 1))
         ch = int(state.get("current_chapter", 1))
+        from novel_agent.llm.cost import set_chapter
+
+        set_chapter(f"{vol}_{ch}")  # 按章成本流水归属（理解/摘要等调用）
         key = f"{vol}_{ch}"
         chapter = state.get("chapters", {}).get(key, {})
         paths = _project_paths(state)

@@ -18,6 +18,11 @@ def set_project(project_id: str, root: str | Path | None = None) -> None:
         _tls.root = Path(root)
 
 
+def set_chapter(key: str | None) -> None:
+    """标记当前章节（如 "1_5"）：记录 usage 时同步按章流水（成本可观测）。"""
+    _tls.chapter_key = key
+
+
 def _cost_path(root: Path, project_id: str) -> Path:
     from novel_agent.storage import ProjectPaths
 
@@ -85,6 +90,17 @@ def record_usage(usage: dict | None, model: str | None = None) -> None:
         bucket["calls"] = int(bucket.get("calls", 0)) + 1
         models[model] = bucket
         data["models"] = models
+    # 按章流水（成本可观测）：标记了章节时同步累计到该章
+    chapter_key = getattr(_tls, "chapter_key", None)
+    if chapter_key:
+        ch_buckets = dict(data.get("chapters") or {})
+        cb = dict(ch_buckets.get(chapter_key) or {})
+        cb["prompt_tokens"] = int(cb.get("prompt_tokens", 0)) + int(usage.get("prompt_tokens") or 0)
+        cb["completion_tokens"] = int(cb.get("completion_tokens", 0)) + int(usage.get("completion_tokens") or 0)
+        cb["total_tokens"] = int(cb.get("total_tokens", 0)) + int(usage.get("total_tokens") or 0)
+        cb["calls"] = int(cb.get("calls", 0)) + 1
+        ch_buckets[chapter_key] = cb
+        data["chapters"] = ch_buckets
     write_json_atomic(path, data)
 
 
@@ -96,6 +112,7 @@ def get_cost(root: Path, project_id: str, cfg_cost: dict | None = None) -> dict:
             data = json.load(fh)
     prompt = int(data.get("prompt_tokens", 0))
     completion = int(data.get("completion_tokens", 0))
+    chapters = data.get("chapters") or {}
     # 有按模型分桶时逐模型计价；否则整体用缺省价
     est = 0.0
     models = data.get("models") or {}
@@ -113,4 +130,5 @@ def get_cost(root: Path, project_id: str, cfg_cost: dict | None = None) -> dict:
         "total_tokens": int(data.get("total_tokens", 0)),
         "calls": int(data.get("calls", 0)),
         "est_cost_usd": round(est, 4),
+        "chapters": chapters,
     }

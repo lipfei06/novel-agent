@@ -10,6 +10,8 @@ import json
 import re
 from pathlib import Path
 
+from pydantic import BaseModel, Field
+
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured
 from novel_agent.storage import ProjectPaths
@@ -438,6 +440,35 @@ def summarize_chat_design(messages: list[dict], cfg: Config) -> str:
 
     record_usage(extract_usage(resp))
     return str(resp.content)
+
+
+class ChapterDesign(BaseModel):
+    """章节设计要点（结构化回复，供自动化流程消费，避免解析自由文本）。"""
+
+    goal: str = Field(default="")
+    conflicts: list[str] = Field(default_factory=list)
+    hook: str = Field(default="")
+
+
+def chat_design_points(project_id: str, context: str, message: str, root: Path, cfg: Config, values: dict) -> dict:
+    """章节助手结构化回复：基于讨论输出 本章目标/冲突/钩子（JSON），同时留存对话历史。"""
+    from novel_agent.llm.cost import extract_usage, record_usage
+
+    path = _chat_path(root, project_id, context)
+    history = load_history(path)
+    history.append({"role": "user", "content": message})
+    system = (
+        "你是章节助手。基于与作者的讨论，给出本章设计要点。只输出 JSON："
+        '{"goal": "本章目标一句话", "conflicts": ["冲突1", "冲突2"], "hook": "结尾钩子一句话"}'
+    )
+    msgs = [{"role": "system", "content": system}] + history[-MAX_HISTORY:]
+    llm = get_chat_model("cheap", cfg)
+    result = invoke_structured(llm, msgs, schema=ChapterDesign)
+    data = result.model_dump()
+    reply = f"目标：{data['goal']}\n冲突：{'；'.join(data['conflicts'])}\n钩子：{data['hook']}"
+    history.append({"role": "assistant", "content": reply})
+    save_history(path, history)
+    return {"reply": reply, "data": data}
 
 
 def reset(project_id: str, context: str, root: Path) -> None:
