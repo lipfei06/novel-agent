@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import { runTaskWithProgress } from '../lib/taskStream.js'
 import ChatPanel from '../components/ChatPanel.jsx'
+import ConfirmView from '../components/ConfirmView.jsx'
 
 // 新建章节独立页面：与 AI 讨论设计 → 按讨论生成（SSE 流式进度）→ 预览 → 接受/放弃
 export default function NewChapterPage({ projectId, vol, onBack }) {
@@ -16,6 +17,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
   const [showPrompt, setShowPrompt] = useState(false)
   const [quickNote, setQuickNote] = useState('') // 主按钮旁的快速生成指令（可选）
   const [agentic, setAgentic] = useState(false) // 智能研究模式：写手自主查询状态/伏笔
+  const [pipelinePending, setPipelinePending] = useState(null) // 流水线中本卷的章节级待确认项
   const [error, setError] = useState(null)
   const set = (k, v) => setForm({ ...form, [k]: v })
 
@@ -27,6 +29,14 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
     api.products(projectId).then((d) => {
       const count = d.chapters ? Object.keys(d.chapters).filter((k) => k.startsWith(`${vol}_`)).length : 0
       setChapterNo(count + 1)
+    }).catch(() => {})
+    // 流水线若有本卷的章节级待确认项（4b 规划/5 正文预览/6 审查），在本页顶部承接处理
+    api.projectState(projectId).then((d) => {
+      if (!d.done && ['stage4b', 'stage5', 'stage6'].includes(d.stage) && d.current_volume === vol) {
+        setPipelinePending(d)
+      } else {
+        setPipelinePending(null)
+      }
     }).catch(() => {})
   }
 
@@ -116,6 +126,33 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
       </div>
 
       {error && <div className="mb-4 rounded border border-red-200 bg-red-50 dark:bg-red-900/20 dark:text-red-300 text-red-700 px-4 py-3 text-sm">{error}</div>}
+
+      {/* 流水线待确认项：本卷有未处理完的规划/正文/审查确认时，优先在此继续 */}
+      {pipelinePending && !pending && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 rounded px-2 py-0.5">
+              流水线待确认
+            </span>
+            <span className="text-xs text-muted">上一批生成流程停在此处，确认后才会继续</span>
+          </div>
+          <ConfirmView
+            view={pipelinePending}
+            onSubmit={(body) =>
+              api.confirm(projectId, body.action, body.data).then((v) => {
+                if (v.done || !['stage4b', 'stage5', 'stage6'].includes(v.stage) || v.current_volume !== vol) {
+                  setPipelinePending(null)
+                  load()
+                } else {
+                  setPipelinePending(v)
+                }
+                return v
+              })
+            }
+            busy={generating}
+          />
+        </div>
+      )}
 
       {/* 流式生成进度 */}
       {generating && progress && (

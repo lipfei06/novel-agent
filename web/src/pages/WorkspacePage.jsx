@@ -22,9 +22,8 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
   const inFlight = useRef(false)
 
   const setupDone = !!(products?.outline)
-  // 章节级确认（4b/5/6）：归属到对应卷卡片内渲染，而非悬浮在整本书顶部
-  const isChapterConfirm =
-    !!view && !view.done && ['stage4b', 'stage5', 'stage6'].includes(view.stage) && view.current_volume != null
+  // 章节级确认（4b/5/6）不在工作台展示：归属到「新建章节」页对应卷处理
+  const isChapterStage = !!view && ['stage4b', 'stage5', 'stage6'].includes(view.stage)
   // 自动继续：这些环节依次自动接受，进入章节环节（stage4b）或终审时暂停
   const AUTO_STAGES = ['stage0', 'stage1', 'stage2', 'stage3', 'stage4a']
   const sseUrl = `/api/projects/${projectId}/events`
@@ -148,18 +147,18 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
 
       {error && <div className="mb-4 rounded border border-red-200 bg-red-50 dark:bg-red-900/20 dark:text-red-300 text-red-700 px-4 py-3 text-sm">{error}</div>}
 
-      {/* 当前确认点：全书级环节（设定/终审/导出）渲染在页顶；章节级确认移入对应卷卡片内 */}
-      {view && !view.done && !isChapterConfirm && (
+      {/* 当前确认点：仅全书级环节（设定/终审/导出）；章节级确认在「新建章节」页处理 */}
+      {view && !view.done && !isChapterStage && (
         <div className="mb-6">
           <ConfirmView view={view} onSubmit={submit} busy={busy} auto={auto} onAutoChange={setAuto} />
         </div>
       )}
 
-      {/* 设定区（选题/世界/人物/总纲：创建后可编辑）；章节阶段自动收起，避免与确认卡争夺注意力 */}
+      {/* 设定区（选题/世界/人物/总纲：创建后可编辑）；章节阶段自动收起 */}
       <div className="mb-6">
         <ProductsPanel
           projectId={projectId}
-          autoCollapse={!!view && ['stage4b', 'stage5', 'stage6', 'stage8', 'stage9'].includes(view.stage)}
+          autoCollapse={isChapterStage}
         />
       </div>
 
@@ -171,11 +170,6 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
           onProductsChange={reloadProducts}
           onOpenChapter={onOpenChapter}
           onNewChapter={onNewChapter}
-          pendingView={isChapterConfirm ? view : null}
-          onConfirmSubmit={submit}
-          confirmBusy={busy}
-          auto={auto}
-          onAutoChange={setAuto}
         />
       ) : (
         <SetupArea
