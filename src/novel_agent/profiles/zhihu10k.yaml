@@ -1,0 +1,20 @@
+id: zhihu10k
+name: 知乎体短篇
+target_word_count: 10000
+default_volumes: 1
+chapters_per_volume: 4
+words_per_chapter: 2500
+world_requirements:
+  - 职场格局（公司/对手公司/客户三方）
+  - 时间线（被裁→反击→收网→终局，跨度不超过一年）
+red_lines:
+  - 违反平台合规的敏感内容
+  - 真实公司名与可识别真人
+style_preset:
+  pov: "第一人称'我'，知乎体"
+  tone: "冷静克制带梗，叙述简短有力"
+  pace: "快节奏，每章一个反转，每章结尾留钩子"
+  dialogue_ratio: 0.5
+  hook_frequency: "每章结尾必留钩子"
+  show_vs_tell: 0.5
+  sensitivity: "平台合规尺度"
