@@ -40,6 +40,10 @@ class NovelState(TypedDict, total=False):
     character_state: dict | None  # 主要人物当前状态卡
     writer_proposals: dict | None  # 写手智能体的记忆更新提案（stage7 消费后清除）
 
+    # 正典事实层：事件账本（{vol_ch: [事件]}) 与道具登记卡（{道具名: {facts, first_ch, last_ch}}）
+    event_ledger: dict | None
+    prop_registry: dict | None
+
     # 写作手法（自写作手法库挂载的条目快照）与叙事蓝图（机制型手法"暗线"的结构化数据）
     techniques: list[dict] | None  # [{id, name, mode, apply_stage, guidance, checklist, ...}]
     narrative_blueprint: dict | None  # {theme, motifs, dark_threads: [{id,name,truth,surface,reveal_plan,related}]}

@@ -16,13 +16,16 @@ from novel_agent.types.character_state import CharacterState, CharacterStateEntr
 
 from . import is_mock
 
-SYSTEM_PROMPT = """你是小说连续性管理员。阅读本章正文，一次性完成三项分析：
+SYSTEM_PROMPT = """你是小说连续性管理员。阅读本章正文，一次性完成四项分析：
 1. summary：用 80-150 字概括本章（关键事件、人物动机与行动、冲突结果、留给下一章的钩子）；
 2. entries：为**主要角色（main）**更新状态卡——所在位置、情绪、身体/伤势、资源、
    关键关系现状、知道/不知道什么、目标进展、状态（在世/死亡/退场/蜕变）、当前弧光阶段。
    只处理主要角色名单中的角色；承接上一章状态，只记录本章的变化与现状；
 3. relations：抽取本章人物之间发生的关系或互动（结盟/冲突/误会/情感变化等），
-   只使用名单中的名字，每条给关系类型（1-4 字）与一句备注，最多 5 条，没有则返回空列表。"""
+   只使用名单中的名字，每条给关系类型（1-4 字）与一句备注，最多 5 条，没有则返回空列表；
+4. events 与 prop_facts：events 列出本章发生的关键事件（每条一句话，3-6 条）；
+   prop_facts 记录本章确立或变更的**道具/秘密事实**（如怀表的刻字、夹层、芯片状态，
+   某证据的金额/编号），每条"道具名 + 事实"，只记录**新确立或发生变化**的，没有则空。"""
 
 
 class Relation(BaseModel):
@@ -32,10 +35,42 @@ class Relation(BaseModel):
     note: str = ""
 
 
+class PropFact(BaseModel):
+    """本章确立或变更的道具/秘密事实（成本优化外的正典层：防道具细节反复'重新发现'）。"""
+
+    prop: str = ""
+    fact: str = ""
+
+
 class ChapterUnderstanding(BaseModel):
     summary: str = Field(default="")
     entries: list[CharacterStateEntry] = Field(default_factory=list)
     relations: list[Relation] = Field(default_factory=list)
+    events: list[str] = Field(default_factory=list)
+    prop_facts: list[PropFact] = Field(default_factory=list)
+
+
+def merge_canon_updates(
+    event_ledger: dict | None,
+    prop_registry: dict | None,
+    vol: int,
+    ch: int,
+    und: ChapterUnderstanding,
+) -> tuple[dict, dict]:
+    """把本章理解结果并入事件账本与道具登记卡，返回 (event_ledger, prop_registry) 新副本。"""
+    el = dict(event_ledger or {})
+    if und.events:
+        el[f"{vol}_{ch}"] = list(und.events)
+    pr = json.loads(json.dumps(prop_registry or {}, ensure_ascii=False))
+    key = f"{vol}_{ch}"
+    for pf in und.prop_facts:
+        if not pf.prop or not pf.fact:
+            continue
+        entry = pr.setdefault(pf.prop, {"facts": [], "first_ch": key, "last_ch": key})
+        if pf.fact not in entry["facts"]:
+            entry["facts"].append(pf.fact)
+        entry["last_ch"] = key
+    return el, pr
 
 
 def merge_state_entries(prev_entries: list[dict], new_entries: list[dict], ch: int) -> list[dict]:
@@ -72,10 +107,12 @@ def understand_chapter(
         summary = f"{title}：{' / '.join(heads)}"
         relations = extract_relations(chapter_data, characters or [], cfg)
         state = _mock_state(chapter_data, mains, prev_entries, int(getattr(cfg.genre, "chapters_per_volume", 0) or 6))
+        events = [f"场景推进：{(s.get('heading') or '').strip() or '本章场景'}" for s in chapter_data.get("scenes", [])][:6]
         return ChapterUnderstanding(
             summary=summary,
             entries=state.entries,
             relations=[Relation(**r) for r in relations],
+            events=events,
         )
 
     known = sorted({c.get("name", "") for c in characters or [] if isinstance(c, dict) and c.get("name")})
@@ -87,7 +124,7 @@ def understand_chapter(
     )
     if author_hints:
         user += f"作者写本章时的意图性状态变化（优先参考，结合正文核正）：{json.dumps(author_hints, ensure_ascii=False)}\n"
-    user += "请一次性输出 summary / entries / relations。"
+    user += "请一次性输出 summary / entries / relations / events / prop_facts。"
     messages = build_messages(SYSTEM_PROMPT, user, "understanding", cfg.token_budget)
     llm = get_chat_model("cheap", cfg)
     result = invoke_structured(llm, messages, schema=ChapterUnderstanding)
@@ -99,4 +136,10 @@ def understand_chapter(
         if r.a in known_set and r.b in known_set and r.a != r.b
     ][:5]
     entries = merge_state_entries(prev_entries, [e.model_dump() for e in result.entries], ch)
-    return ChapterUnderstanding(summary=result.summary.strip(), entries=[CharacterStateEntry(**e) for e in entries], relations=relations)
+    return ChapterUnderstanding(
+        summary=result.summary.strip(),
+        entries=[CharacterStateEntry(**e) for e in entries],
+        relations=relations,
+        events=[e.strip() for e in result.events if e.strip()][:6],
+        prop_facts=[p for p in result.prop_facts if p.prop and p.fact],
+    )

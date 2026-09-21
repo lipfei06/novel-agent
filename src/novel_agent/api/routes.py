@@ -1095,11 +1095,19 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
         )
         if body.auto_plan:
             pending_fs = collect_pending_foreshadow(values.get("writer_packets"))
+            done_keys = sorted((values.get("chapters") or {}).keys(),
+                               key=lambda k: [int(p) for p in str(k).split("_")])
+            used_titles = [(values.get("chapters") or {})[k].get("title", "")
+                           for k in done_keys if (values.get("chapters") or {})[k].get("title")]
             packet = generate_writer_packet(
                 VolumePlan(**plan), Outline(**values.get("outline", {})), values.get("characters") or [],
                 chapter_no, cfg, discussion=discussion, pending_foreshadow=pending_fs,
                 techniques=techniques, blueprint=blueprint, tools=plan_tools,
+                event_ledger=values.get("event_ledger"), used_titles=used_titles,
+                prop_registry=values.get("prop_registry"),
             )
+            if body.title:
+                packet = packet.model_copy(update={"title": body.title, "goal": body.goal or packet.goal})
             if body.title:
                 packet = packet.model_copy(update={"title": body.title, "goal": body.goal or packet.goal})
         else:
@@ -1242,6 +1250,19 @@ def _finalize_chapter(runtime, values, cfg, root: Path, project_id: str, chapter
         runtime.graph.update_state(runtime.thread, {"character_state": new_state.model_dump()})
     except Exception as exc:
         log.warning("[finalize] 状态更新失败: %s", exc)
+
+    # 正典事实层：事件账本 + 道具登记卡随章节更新（失败不阻断）
+    if understanding is not None:
+        try:
+            from novel_agent.agents.understanding import merge_canon_updates
+
+            el, pr = merge_canon_updates(
+                values.get("event_ledger"), values.get("prop_registry"),
+                int(chapter.volume or 1), int(chapter.chapter or 1), understanding,
+            )
+            runtime.graph.update_state(runtime.thread, {"event_ledger": el, "prop_registry": pr})
+        except Exception as exc:
+            log.warning("[finalize] 正典账本更新失败: %s", exc)
 
     try:
         from novel_agent.agents.recurring import extract_recurring_characters

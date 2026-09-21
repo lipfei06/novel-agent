@@ -205,12 +205,21 @@ def _stage4b(cfg: Config):
             {"goal": " ".join(plan.event_arc or []), "hook": plan.ending_hook or "", "title": plan.title or ""},
             top_k=int(cfg.library.get("tool_top_k", 3)),
         ) if root else []
+        done_chapters = state.get("chapters") or {}
+        used_titles = [
+            c.get("title", "")
+            for k in sorted(done_chapters.keys(), key=lambda x: [int(p) for p in str(x).split("_")])
+            for c in [done_chapters[k]]
+            if c.get("title", "")
+        ]
         packet = _confirm_product(
             "stage4b",
             "章级规划",
             lambda: generate_writer_packet(
                 plan, outline, characters, ch, cfg,
                 pending_foreshadow=pending_fs, techniques=techniques, blueprint=blueprint, tools=plan_tools,
+                event_ledger=state.get("event_ledger"), used_titles=used_titles,
+                prop_registry=state.get("prop_registry"),
             ),
             rebuild=lambda _p, d: WriterPacket(**d),
         )
@@ -489,6 +498,16 @@ def _stage7(cfg: Config):
             log.warning("[stage7] 章节理解合并调用失败，退回独立抽取: %s", exc)
         update_chapter_memory(chapter, cfg, midterm, long_term, graph, characters, understanding=understanding)
 
+        # 正典事实层（OPT-B 扩展）：事件账本 + 道具登记卡
+        canon_updates: dict = {}
+        if understanding is not None:
+            from novel_agent.agents.understanding import merge_canon_updates
+
+            el, pr = merge_canon_updates(
+                state.get("event_ledger"), state.get("prop_registry"), vol, ch, understanding
+            )
+            canon_updates = {"event_ledger": el, "prop_registry": pr}
+
         # 人物状态增量 + 路人升级：随章节自动更新（失败不阻断主流程）
         character_state_update = None
         try:
@@ -549,6 +568,7 @@ def _stage7(cfg: Config):
             "messages": [*(state.get("messages", [])[-30:]), f"stage7 第{vol}卷第{ch}章记忆更新"],
             # 写手提案已作为 author_hints 消费（见上方提取调用），此处清除
             "writer_proposals": None,
+            **canon_updates,
         }
         if character_state_update is not None:
             updates["character_state"] = character_state_update

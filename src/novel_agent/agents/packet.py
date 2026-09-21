@@ -59,6 +59,9 @@ def generate_writer_packet(
     techniques: list[dict] | None = None,
     blueprint: dict | None = None,
     tools: list[dict] | None = None,
+    event_ledger: dict | None = None,
+    used_titles: list[str] | None = None,
+    prop_registry: dict | None = None,
 ) -> WriterPacket:
     vp = volume_plan.model_dump() if hasattr(volume_plan, "model_dump") else dict(volume_plan)
     outline_data = outline.model_dump() if hasattr(outline, "model_dump") else dict(outline)
@@ -85,11 +88,35 @@ def generate_writer_packet(
             f"可设计回收（foreshadow 填 kind=payoff）；否则不要强行回收，但也不要写出与其矛盾的内容："
             f"{json.dumps(pending_foreshadow, ensure_ascii=False)}>"
         )
+    # 正典事实层注入（防桥段重复/标题重复/道具矛盾）
+    canon_note = ""
+    canon_parts = []
+    if event_ledger:
+        lines = []
+        for k in sorted(event_ledger.keys(), key=lambda x: [int(p) for p in str(x).split("_")]):
+            for e in event_ledger[k][-4:]:
+                lines.append(f"第{k.split('_')[1]}章：{e}")
+        if lines:
+            canon_parts.append(
+                "已发生事件清单（这些桥段/事件**已经写过**，本章严禁重复同类事件或再次获取"
+                "同类情报，必须推进新事件）：\n" + "\n".join(lines[-24:])
+            )
+    if used_titles:
+        canon_parts.append("已用章节标题（本章 title 必须与以下全部不同）：\n" + "、".join(used_titles))
+    if prop_registry:
+        plines = []
+        for name, entry in prop_registry.items():
+            if entry.get("facts"):
+                plines.append(f"{name}：{'；'.join(entry['facts'][-6:])}")
+        if plines:
+            canon_parts.append("道具既定事实（正典，正文不得与之矛盾，也不得'再次发现'已确立的秘密）：\n" + "\n".join(plines))
+    if canon_parts:
+        canon_note = "\n<正典事实（连续性硬约束）>\n" + "\n\n".join(canon_parts) + "\n</正典事实（连续性硬约束）>"
     user = (
         f"卷计划：{json.dumps(vp, ensure_ascii=False)}\n"
         f"总纲（仅当前卷，后文已隐去）：{json.dumps(scoped, ensure_ascii=False)}\n"
         f"人物：{json.dumps(chars, ensure_ascii=False)}\n"
-        f"请为第 {chapter_no} 章生成 packet。{extra}{foreshadow_note}{tech_note}{dark_note}{tool_note}"
+        f"请为第 {chapter_no} 章生成 packet。{extra}{foreshadow_note}{tech_note}{dark_note}{tool_note}{canon_note}"
     )
     messages = build_messages(SYSTEM_PROMPT, user, "packet", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("creative", cfg)
