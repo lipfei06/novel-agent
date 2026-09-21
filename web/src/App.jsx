@@ -67,6 +67,7 @@ export default function App() {
               vol={route.vol}
               ch={route.ch}
               onBack={backToWorkspace}
+              onNavigate={(v, c) => go(`/p/${route.projectId}/chapter/${v}/${c}`)}
             />
           </main>
         </div>

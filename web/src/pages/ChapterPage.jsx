@@ -59,8 +59,9 @@ function AssistantBrand() {
 }
 
 // 章节独立页面：左侧正文内容 + 右侧章节助手面板（并排布局）
-export default function ChapterPage({ projectId, vol, ch, onBack }) {
+export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) {
   const [chapter, setChapter] = useState(null)
+  const [chapterKeys, setChapterKeys] = useState([]) // 全书章节键（数值序），供上一章/下一章导航
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -73,14 +74,37 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
     api
       .products(projectId)
       .then((d) => {
-        const c = d.chapters?.[`${vol}_${ch}`]
+        const chapters = d.chapters ?? {}
+        const c = chapters[`${vol}_${ch}`]
         setChapter(c ?? null)
+        // 数值序章节键（字符串序会把 1_10 排到 1_2 前面）
+        setChapterKeys(
+          Object.keys(chapters).sort(
+            (a, b) =>
+              Number(a.split('_')[0]) - Number(b.split('_')[0]) ||
+              Number(a.split('_')[1]) - Number(b.split('_')[1]),
+          ),
+        )
       })
       .catch((e) => setError(e.message))
 
   useEffect(() => {
     load()
+    setEditing(false)
+    setDraft(null)
+    setPreview(null)
+    setError(null)
   }, [projectId, vol, ch])
+
+  // 上一章/下一章：按全书章节键顺序定位
+  const idx = chapterKeys.indexOf(`${vol}_${ch}`)
+  const prevKey = idx > 0 ? chapterKeys[idx - 1] : null
+  const nextKey = idx >= 0 && idx < chapterKeys.length - 1 ? chapterKeys[idx + 1] : null
+  const go = (key) => {
+    if (!key) return
+    const [v, c] = key.split('_').map(Number)
+    onNavigate?.(v, c)
+  }
 
   const startEdit = () => {
     setDraft(JSON.parse(JSON.stringify(chapter ?? {})))
@@ -176,6 +200,22 @@ export default function ChapterPage({ projectId, vol, ch, onBack }) {
           <p className="text-xs text-muted mt-0.5">卷{vol} · {scenes?.length ?? 0} 个场景</p>
         </div>
         <div className="flex gap-2">
+          <button
+            className="btn-ghost text-sm"
+            disabled={!prevKey}
+            onClick={() => go(prevKey)}
+            title="上一章"
+          >
+            ← 上一章
+          </button>
+          <button
+            className="btn-ghost text-sm"
+            disabled={!nextKey}
+            onClick={() => go(nextKey)}
+            title="下一章"
+          >
+            下一章 →
+          </button>
           <button
             className="btn-ghost text-red-600 dark:text-red-400 text-xs"
             disabled={saving || regenerating}
