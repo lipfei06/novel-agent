@@ -32,7 +32,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
     }).catch(() => {})
     // 流水线若有本卷的章节级待确认项（4b 规划/5 正文预览/6 审查），在本页顶部承接处理
     api.projectState(projectId).then((d) => {
-      if (!d.done && ['stage4b', 'stage5', 'stage6'].includes(d.stage) && d.current_volume === vol) {
+      if (!d.done && ['stage4r', 'stage4b', 'stage5', 'stage6'].includes(d.stage) && d.current_volume === vol) {
         setPipelinePending(d)
       } else {
         setPipelinePending(null)
@@ -140,7 +140,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
             view={pipelinePending}
             onSubmit={(body) =>
               api.confirm(projectId, body.action, body.data).then((v) => {
-                if (v.done || !['stage4b', 'stage5', 'stage6'].includes(v.stage) || v.current_volume !== vol) {
+                if (v.done || !['stage4r', 'stage4b', 'stage5', 'stage6'].includes(v.stage) || v.current_volume !== vol) {
                   setPipelinePending(null)
                   load()
                 } else {

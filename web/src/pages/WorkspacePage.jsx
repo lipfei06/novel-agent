@@ -23,7 +23,7 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
 
   const setupDone = !!(products?.outline)
   // 章节级确认（4b/5/6）不在工作台展示：归属到「新建章节」页对应卷处理
-  const isChapterStage = !!view && ['stage4b', 'stage5', 'stage6'].includes(view.stage)
+  const isChapterStage = !!view && ['stage4r', 'stage4b', 'stage5', 'stage6'].includes(view.stage)
   // 自动继续：这些环节依次自动接受，进入章节环节（stage4b）或终审时暂停
   const AUTO_STAGES = ['stage0', 'stage1', 'stage2', 'stage3', 'stage4a']
   const sseUrl = `/api/projects/${projectId}/events`
