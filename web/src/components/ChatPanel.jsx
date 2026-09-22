@@ -3,7 +3,9 @@ import ReactMarkdown from 'react-markdown'
 import { api } from '../api/client.js'
 
 // 创作对话面板：多轮讨论 + 「提出方案」应用到表单
-export default function ChatPanel({ projectId, context, title, target, onApply, placeholder, hidePropose = false }) {
+export default function ChatPanel({ projectId, context, title, target, onApply, placeholder, hidePropose = false, onWriteRequest }) {
+  // 写作意图：作者在聊天里说"直接写/开写"等，直接触发生成任务而不是聊天回复
+  const WRITE_INTENT_RE = /(直接写|开写|写这[一章章]|生成[本这]一章|可以写了|开始写正文|写正文)/
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -27,7 +29,15 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
   }, [messages])
 
   const send = async () => {
-    if (!input.trim() || busy) return
+    const text = input.trim()
+    if (!text || busy) return
+    // 写作意图直通：本章页传入 onWriteRequest 时，命中意图直接触发生成任务（流式），
+    // 不再走聊天回复——避免把正文当聊天内容写在对话框里
+    if (onWriteRequest && WRITE_INTENT_RE.test(text)) {
+      setInput('')
+      onWriteRequest(text)
+      return
+    }
     setBusy(true)
     setError(null)
     try {

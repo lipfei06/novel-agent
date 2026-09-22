@@ -237,6 +237,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
             title={`章节助手 · 讨论第${chapterNo}章怎么写`}
             target="chapter"
             placeholder="自由聊这一章的想法/情节/对白/节奏……想好后点右上「按讨论生成本章」，AI 会自己提炼要点交给写手"
+            onWriteRequest={() => generate(false)}
           />
           <p className="text-xs text-muted -mt-2">
             💡 想法聊清楚了就点右上「<span className="font-medium">按讨论生成本章</span>」——AI 会总结讨论要点，
