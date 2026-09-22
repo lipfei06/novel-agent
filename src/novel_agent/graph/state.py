@@ -44,6 +44,10 @@ class NovelState(TypedDict, total=False):
     event_ledger: dict | None
     prop_registry: dict | None
 
+    # 规划研究（stage4r）：{vol_ch: 查证上下文} 与作者澄清答案
+    planner_digest: dict | None
+    author_answers: dict | None
+
     # 写作手法（自写作手法库挂载的条目快照）与叙事蓝图（机制型手法"暗线"的结构化数据）
     techniques: list[dict] | None  # [{id, name, mode, apply_stage, guidance, checklist, ...}]
     narrative_blueprint: dict | None  # {theme, motifs, dark_threads: [{id,name,truth,surface,reveal_plan,related}]}

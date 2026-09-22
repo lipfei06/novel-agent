@@ -50,6 +50,10 @@ rag:
   dense_weight: 0.65
   sparse_weight: 0.35
   temporal_top_k: 4
+planner:                              # 章节规划师 ReAct 研究循环（stage4r）
+  react_enabled: true                 # 总开关；关闭则规划师回退为单发生成
+  max_rounds: 3                       # 查证循环轮数上限
+  max_actions: 4                      # 每轮查证动作上限
 
 token_budget:                       # 每环节 prompt 上限（字符级保护；DeepSeek 支持长上下文）
   write: 60000                      # 5 章全文窗口随长篇累积（第5章时估算已达 49493）

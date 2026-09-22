@@ -183,11 +183,90 @@ def _stage4a(cfg: Config):
     return node
 
 
+def _stage4r(cfg: Config):
+    """规划研究节点（ReAct 简化形态）：作者澄清 → 只读查证 → digest 写入 state。
+
+    react_enabled 关闭时直接放行；澄清 interrupt 由前端「新建章节」页承接。
+    """
+    def node(state: NovelState) -> dict:
+        from novel_agent.llm.cost import set_chapter
+
+        vol = int(state.get("current_volume", 1))
+        ch = int(state.get("current_chapter", 1))
+        key = f"{vol}_{ch}"
+        set_chapter(key)
+        if not bool((cfg.planner or {}).get("react_enabled")):
+            return {}
+
+        from novel_agent.agents.planner_research import (
+            PlannerCtx,
+            clarify_with_author,
+            run_planner_research,
+        )
+        from novel_agent.llm import get_embedder
+        from novel_agent.memory import LongTermMemory, MidTermMemory
+        from novel_agent.rag import TemporalGraph
+
+        paths = _project_paths(state)
+        midterm = MidTermMemory(paths.memory_dir / "mid_term.json")
+        long_term = LongTermMemory(paths.vector_dir / "long_term.json", embed_fn=get_embedder(cfg))
+        tgraph = TemporalGraph(paths.graph_dir / "graph.json")
+        chs = state.get("chapters") or {}
+        used_titles = [
+            chs[k].get("title", "")
+            for k in sorted(chs.keys(), key=lambda x: [int(p) for p in str(x).split("_")])
+        ]
+        ctx = PlannerCtx(state, vol, ch, midterm, long_term, tgraph, used_titles=used_titles)
+
+        plan = (state.get("volume_plans") or [{}])[max(vol - 1, 0)] or {}
+
+        plan = (state.get("volume_plans") or [{}])[max(vol - 1, 0)] or {}
+        plan_data = {
+            "volume": vol, "chapter": ch,
+            "title": plan.get("title", ""),
+            "event_arc": plan.get("event_arc") or [],
+            "ending_hook": plan.get("ending_hook", ""),
+            "characters": [c.get("name", "") for c in state.get("characters") or []][:8],
+            "event_ledger": list((state.get("event_ledger") or {}).keys())[-6:],
+            "prop_registry": list((state.get("prop_registry") or {}).keys())[:10],
+        }
+
+        # ① 作者澄清（≤2 问；interrupt 挂起，答案从「新建章节」页提交）
+        canon_parts = []
+        el = state.get("event_ledger") or {}
+        for k in sorted(el.keys(), key=lambda x: [int(p) for p in str(x).split("_")])[-4:]:
+            canon_parts.append(f"第{k}章：{'；'.join(el[k])}")
+        for name, e in (state.get("prop_registry") or {}).items():
+            if e.get("facts"):
+                canon_parts.append(f"{name}：{'；'.join(e['facts'][-3:])}")
+        questions = clarify_with_author(plan_data, cfg, "\n".join(canon_parts))
+        answers = {}
+        if questions:
+            payload = {
+                "type": "ask_author", "stage": "stage4r", "stage_label": "规划澄清",
+                "current_volume": vol, "current_chapter": ch,
+                "questions": questions,
+            }
+            resume_value = interrupt(payload) or {}
+            answers = resume_value.get("answers") if isinstance(resume_value, dict) else {}
+            answers = answers or {}
+
+        # ② 只读查证循环（无 interrupt）
+        digest = run_planner_research(ctx, plan_data, cfg, answers=answers or None)
+
+        merged_digest = dict(state.get("planner_digest") or {})
+        merged_digest[key] = digest
+        return {"planner_digest": merged_digest, "author_answers": answers or None}
+
+    return node
+
+
 def _stage4b(cfg: Config):
     def node(state: NovelState) -> dict:
         plans = [VolumePlan(**p) for p in state.get("volume_plans") or []]
         vol = int(state.get("current_volume", 1))
         ch = int(state.get("current_chapter", 1))
+        key = f"{vol}_{ch}"
         if vol < 1 or vol > len(plans):
             raise ValueError(f"卷{vol} 超出卷规划范围（共 {len(plans)} 卷），章节游标与卷规划不一致")
         plan = plans[vol - 1]
@@ -220,6 +299,7 @@ def _stage4b(cfg: Config):
                 pending_foreshadow=pending_fs, techniques=techniques, blueprint=blueprint, tools=plan_tools,
                 event_ledger=state.get("event_ledger"), used_titles=used_titles,
                 prop_registry=state.get("prop_registry"),
+                research_context=(state.get("planner_digest") or {}).get(key, ""),
             ),
             rebuild=lambda _p, d: WriterPacket(**d),
         )
@@ -634,7 +714,7 @@ def _stage9(cfg: Config):
 
 
 def _after_stage7(state: NovelState) -> str:
-    """记忆更新完成后推进：还有章 → stage4b；写完 → stage8 终审。"""
+    """记忆更新完成后推进：还有章 → stage4r（下一章规划研究）；写完 → stage8 终审。"""
     return "stage4b" if state.get("current_stage") == "stage4b" else "stage8"
 
 
@@ -645,6 +725,7 @@ def build_graph(cfg: Config) -> StateGraph:
     g.add_node("stage2", _stage2(cfg))
     g.add_node("stage3", _stage3(cfg))
     g.add_node("stage4a", _stage4a(cfg))
+    g.add_node("stage4r", _stage4r(cfg))
     g.add_node("stage4b", _stage4b(cfg))
     g.add_node("stage5", _stage5(cfg))
     g.add_node("stage6", _stage6(cfg))
@@ -656,14 +737,15 @@ def build_graph(cfg: Config) -> StateGraph:
     g.add_edge("stage1", "stage2")
     g.add_edge("stage2", "stage3")
     g.add_edge("stage3", "stage4a")
-    g.add_edge("stage4a", "stage4b")
+    g.add_edge("stage4a", "stage4r")
+    g.add_edge("stage4r", "stage4b")
     g.add_edge("stage4b", "stage5")
     g.add_edge("stage5", "stage6")
     g.add_edge("stage6", "stage7")
     g.add_conditional_edges(
         "stage7",
         _after_stage7,
-        {"stage4b": "stage4b", "stage8": "stage8"},
+        {"stage4b": "stage4r", "stage8": "stage8"},
     )
     g.add_edge("stage8", "stage9")
     g.add_edge("stage9", END)

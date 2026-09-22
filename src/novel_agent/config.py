@@ -61,6 +61,7 @@ class Config:
     cost: dict = field(default_factory=dict)
     writer: dict = field(default_factory=dict)
     model_overrides: dict = field(default_factory=dict)  # 任务级模型覆写：{任务名: 档位名}
+    planner: dict = field(default_factory=dict)  # 规划研究循环配置（react_enabled/max_rounds）
 
     def tier(self, name: str) -> ModelTier:
         if name not in self.tiers:
@@ -140,7 +141,8 @@ def load_config(path: str | Path = "config.yaml", genre: str | None = None) -> C
         consistency=dict(raw.get("consistency", {})),
         cost=dict(raw.get("cost", {})),
         writer=dict(raw.get("writer", {})),
-        model_overrides=dict(raw.get("model_overrides", {})),
+        model_overrides=dict(raw.get("model_overrides") or {}),
+        planner=dict(raw.get("planner") or {}),
     )
 
 

@@ -62,6 +62,7 @@ def generate_writer_packet(
     event_ledger: dict | None = None,
     used_titles: list[str] | None = None,
     prop_registry: dict | None = None,
+    research_context: str = "",
 ) -> WriterPacket:
     vp = volume_plan.model_dump() if hasattr(volume_plan, "model_dump") else dict(volume_plan)
     outline_data = outline.model_dump() if hasattr(outline, "model_dump") else dict(outline)
@@ -112,11 +113,18 @@ def generate_writer_packet(
             canon_parts.append("道具既定事实（正典，正文不得与之矛盾，也不得'再次发现'已确立的秘密）：\n" + "\n".join(plines))
     if canon_parts:
         canon_note = "\n<正典事实（连续性硬约束）>\n" + "\n\n".join(canon_parts) + "\n</正典事实（连续性硬约束）>"
+    research_note = ""
+    if research_context.strip():
+        research_note = (
+            "\n<规划查证上下文（规划师已核实的前文事实与原文，可直接引用）>\n"
+            + research_context.strip()
+            + "\n</规划查证上下文>"
+        )
     user = (
         f"卷计划：{json.dumps(vp, ensure_ascii=False)}\n"
         f"总纲（仅当前卷，后文已隐去）：{json.dumps(scoped, ensure_ascii=False)}\n"
         f"人物：{json.dumps(chars, ensure_ascii=False)}\n"
-        f"请为第 {chapter_no} 章生成 packet。{extra}{foreshadow_note}{tech_note}{dark_note}{tool_note}{canon_note}"
+        f"请为第 {chapter_no} 章生成 packet。{extra}{foreshadow_note}{tech_note}{dark_note}{tool_note}{canon_note}{research_note}"
     )
     messages = build_messages(SYSTEM_PROMPT, user, "packet", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("creative", cfg)
