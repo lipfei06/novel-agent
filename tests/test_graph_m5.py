@@ -105,3 +105,30 @@ def test_sqlite_resume_across_instances():
     values = _accept_until_done(graph_b, config)
     assert values["current_stage"] == "done"
     assert len(values["chapters"]) == 6
+
+
+def test_chapter_discussion_reaches_graph_nodes():
+    """作者在章节聊天里的要求必须进入图原生链路（无聊天记录时安静降级为空串）。"""
+    import json as _json
+
+    from novel_agent.graph.graph import _chapter_discussion
+
+    cfg = _cfg()
+    root = _root()
+    state = {"project_root": str(root), "project_id": "pDisc"}
+    assert _chapter_discussion(state, 1, 1, cfg) == ""  # 无聊天记录 → 空串
+
+    chat_dir = root / "data" / "projects" / "pDisc" / "chat"
+    chat_dir.mkdir(parents=True)
+    (chat_dir / "chapter_1_1.json").write_text(
+        _json.dumps(
+            [
+                {"role": "user", "content": "这章每场穿插一两个梗，别太沉重"},
+                {"role": "assistant", "content": "好的，就按这个基调来。"},
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    got = _chapter_discussion(state, 1, 1, cfg)
+    assert "每场穿插一两个梗" in got  # mock 提炼返回最近一条作者消息

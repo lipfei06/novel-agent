@@ -300,6 +300,7 @@ def _stage4b(cfg: Config):
                 event_ledger=state.get("event_ledger"), used_titles=used_titles,
                 prop_registry=state.get("prop_registry"),
                 research_context=(state.get("planner_digest") or {}).get(key, ""),
+                discussion=_chapter_discussion(state, vol, ch, cfg),
             ),
             rebuild=lambda _p, d: WriterPacket(**d),
         )
@@ -327,6 +328,10 @@ def _stage5(cfg: Config):
         packet = WriterPacket(**raw_packet)
         memory_context = _memory_context(state, cfg)
         rag_context = _rag_context(state, packet, ch, cfg)
+        # 作者在章节聊天里的要求无条件进入写作（也覆盖任务书确认后才聊的新要求）
+        discussion = _chapter_discussion(state, vol, ch, cfg)
+        if discussion:
+            memory_context += f"\n\n<作者与AI讨论的设计>\n{discussion}\n</作者与AI讨论的设计>"
         from novel_agent.library.searcher import tools_for_chapter
 
         chapter_tools = tools_for_chapter(
@@ -494,6 +499,28 @@ def _rag_context(state: NovelState, packet: WriterPacket, current_chapter: int, 
 
 def _project_paths(state: NovelState) -> ProjectPaths:
     return ProjectPaths(Path(state.get("project_root", ".")), state.get("project_id", "unknown"))
+
+
+def _chapter_discussion(state: NovelState, vol: int, ch: int, cfg: Config) -> str:
+    """章节聊天记录 → 设计要点：作者在对话里的要求无条件进入图原生规划与写作链路。
+
+    REST 任务路径（_chapter_generation_job）自行注入讨论；此函数补齐恢复/确认等
+    图原生路径的缺口——旧断点的任务书生成于讨论之前时，stage5 写作仍能拿到最新要求。
+    无聊天记录或提炼失败时返回空串：讨论缺失只降级，不阻塞生成。
+    """
+    try:
+        from novel_agent.api.chat import _chat_path, load_history, summarize_chat_design
+
+        path = _chat_path(_project_paths(state).root, str(state.get("project_id", "")), f"chapter_{vol}_{ch}")
+        msgs = load_history(path)
+        if not msgs:
+            return ""
+        return summarize_chat_design(msgs, cfg)
+    except Exception as exc:  # noqa: BLE001
+        from novel_agent.logutil import get_logger
+
+        get_logger().warning("[graph] 第%s卷第%s章讨论提炼失败（忽略）: %s", vol, ch, exc)
+        return ""
 
 
 def _stage6(cfg: Config):
