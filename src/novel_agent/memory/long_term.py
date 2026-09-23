@@ -91,8 +91,8 @@ class LongTermMemory:
     meta 与 chunks 平行：{vol, ch, scene, key, part?, parts?}。旧格式文件无
     meta 时自动补 None——此类块不参与按章回滚与来源标注。
 
-    注意：构造时 embed_fn 必须与已存库的 mode 一致，否则触发模式不匹配、
-    库被当作空库——此后任何 add/save 都会**清空原向量**。
+    后端模式与已存库不一致时（如稠密/稀疏切换），按 chunks 文本重算向量，
+    语料无损；稠密重算接口故障时降级为稀疏检索。
     """
 
     MODE_SPARSE = "sparse"
@@ -116,19 +116,33 @@ class LongTermMemory:
         chunks = list(data.get("chunks", []))
         vectors = list(data.get("vectors", []))
         mode = str(data.get("mode", self.MODE_SPARSE))
-        if mode != self._mode:
-            # 后端切换：旧向量与新检索方式不兼容，重建索引
-            import sys
-
-            print(
-                f"[long_term] 向量后端由 {mode} 切换为 {self._mode}，重建索引（丢弃 {len(chunks)} 条旧向量）",
-                file=sys.stderr,
-                flush=True,
-            )
-            return
         metas = data.get("meta")
         if not isinstance(metas, list) or len(metas) != len(chunks):
             metas = [None] * len(chunks)
+        if mode != self._mode:
+            # 后端切换：旧向量与新检索方式不兼容。chunks 文本是源数据——
+            # 按新方式重算向量即可，绝不能丢弃（丢弃=不可逆的语料损失）。
+            import sys
+
+            print(
+                f"[long_term] 向量后端由 {mode} 切换为 {self._mode}，按文本重算 {len(chunks)} 条向量（无数据丢失）",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._chunks = chunks
+            self._meta = list(metas)
+            try:
+                self._vectors = [self._vector(c) for c in self._chunks]
+            except Exception as exc:  # noqa: BLE001  稠密接口故障：降级稀疏，文本仍在
+                print(
+                    f"[long_term] 重算向量失败（{exc}），降级为稀疏检索（文本已保留）",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self._mode = self.MODE_SPARSE
+                self._vectors = [_bigrams(c) for c in self._chunks]
+            self._save()
+            return
         self._chunks = chunks
         self._vectors = vectors
         self._meta = list(metas)

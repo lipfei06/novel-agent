@@ -44,6 +44,26 @@ def test_long_term_clear_and_persist():
     assert len(LongTermMemory(path)) == 0
 
 
+def test_long_term_mode_switch_preserves_corpus():
+    """稠密/稀疏后端切换不得丢弃语料：按文本重算向量，检索仍可用。"""
+    path = _tmp() / "long_term.json"
+
+    def fake_embed(text: str) -> list[float]:
+        return [float(len(text)), 1.0]  # 伪稠密向量
+
+    dense = LongTermMemory(path, embed_fn=fake_embed)
+    dense.add(["雨夜老宅的铁盒藏着身世秘密", "机场追击的单程票"])
+
+    sparse = LongTermMemory(path)  # 以稀疏模式打开同一份库
+    assert len(sparse) == 2  # 语料无损
+    hits = sparse.search("铁盒", top_k=1)
+    assert hits and "铁盒" in hits[0]
+
+    redense = LongTermMemory(path, embed_fn=fake_embed)  # 切回稠密：按文本重算
+    assert len(redense) == 2
+    assert redense.search("单程票", top_k=1)[0].endswith("单程票")
+
+
 def test_mid_term_add_get_recent():
     path = _tmp() / "mid_term.json"
     m = MidTermMemory(path)

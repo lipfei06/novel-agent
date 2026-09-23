@@ -1177,6 +1177,7 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
 
                 set_chapter(f"{vol}_{chapter_no}")
                 _, vec_p, graph_p = _mem_paths(root, project_id)
+                from novel_agent.llm import get_embedder
                 from novel_agent.memory import LongTermMemory, MidTermMemory
                 from novel_agent.rag import TemporalGraph
                 from novel_agent.agents.planner_research import PlannerCtx, run_planner_research
