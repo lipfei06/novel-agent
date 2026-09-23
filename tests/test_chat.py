@@ -95,6 +95,11 @@ def test_chapter_generation_uses_discussion():
         r = c.post("/api/projects/pC5/volumes/1/chapters", json={"goal": "x", "chat_context": "chapter_1_1"})
         assert r.status_code == 200
         assert r.json()["pending"]["scenes"]
+        # 任务书随章归档（追溯"这章按什么指令写的"）
+        prods = c.get("/api/projects/pC5/products").json()
+        assert (prods.get("writer_packets") or {}).get("1_1")
+        r2 = c.post("/api/projects/pC5/confirm", json={"action": "accept"})
+        assert r2.status_code == 200
 
 
 def test_chat_stream_sse():

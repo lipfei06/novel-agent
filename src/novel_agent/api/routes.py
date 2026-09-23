@@ -1261,7 +1261,12 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
         )
 
         progress("保存预览…", 95)
-        updates = {"pending_chapter": chapter.model_dump()}
+        updates = {
+            "pending_chapter": chapter.model_dump(),
+            # 任务书随章归档：作者可追溯每章是按什么目标/讨论要点/指令生成的
+            "writer_packets": {**(values.get("writer_packets") or {}),
+                               f"{vol}_{chapter_no}": packet.model_dump()},
+        }
         # 智能提案：写手提出记忆更新提案，暂存供接受章节时合并
         proposals = None
         if body.agentic:
