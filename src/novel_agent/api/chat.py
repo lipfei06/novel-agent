@@ -342,11 +342,91 @@ def chat_reply(project_id: str, context: str, message: str, root: Path, cfg: Con
     return reply, history
 
 
-def chat_reply_stream(project_id: str, context: str, message: str, root: Path, cfg: Config, values: dict):
-    """chat_reply 的流式版：生成器逐段产出 (kind, payload)。
+_CHAT_TOOL_MENU = """\
+- query_vector：语义检索前文相关片段，args 例 {"keyword": "玉佩", "top_k": 3}
+- query_timeline：查某实体的时间线关系，args 例 {"entity": "沈知夏"}
+- get_chapter_summary：查某章中期摘要，args 例 {"chapter": 21}
+- get_prop_facts：查道具登记卡事实，args 例 {"name": "玉佩"}
+- list_recent_events：查最近 N 章事件账本，args 例 {"count": 6}
+- check_titles：查已用章节标题，args {}
+- spawn_writer：讨论成熟、可以动笔时转交写手智能体生成本章，args 例 {"note": "给写手的补充指令（要点/风格/节奏等）"}"""
 
-    kind: "token" 增量文本 / "error" 中断原因 / "done" 结束（payload 为完整回复）。
-    历史仍在结束后一次性落盘——流式只是传输层，存储语义与 chat_reply 一致。
+_ACTION_FENCE_RE = re.compile(r"```(?:json)?\s*(\{[^`]*?\"tool\"[^`]*?\})\s*```", re.S)
+
+CHAT_MAX_TOOL_ROUNDS = 4  # 工具轮数上限（决策归模型，上限归代码）
+
+
+def _parse_action(text: str) -> dict | None:
+    """从模型回复解析工具调用：优先取最后一个 ```json {"tool":...}``` 块，兼容裸 JSON 行。"""
+    cands = [m.group(1) for m in _ACTION_FENCE_RE.finditer(text)]
+    for line in reversed(text.splitlines()):
+        s = line.strip()
+        if s.startswith("{") and s.endswith("}") and '"tool"' in s:
+            cands.append(s)
+            break
+    for cand in reversed(cands):  # 取最后一个（模型可能先给出作废的调用再修正）
+        try:
+            obj = json.loads(cand)
+        except Exception:
+            continue
+        if isinstance(obj, dict) and obj.get("tool"):
+            return obj
+    return None
+
+
+def _strip_action(text: str) -> str:
+    """去掉回复里的工具调用块，只留给作者看的部分。"""
+    stripped = _ACTION_FENCE_RE.sub("", text)
+    lines = [ln for ln in stripped.splitlines() if not (ln.strip().startswith("{") and '"tool"' in ln.strip())]
+    return "\n".join(lines).strip()
+
+
+def _action_brief(action: dict) -> str:
+    args = action.get("args") or {}
+    brief = "、".join(str(v) for v in args.values() if v not in (None, ""))
+    return brief[:24] or "—"
+
+
+def _build_chat_tools(context: str, values: dict, cfg: Config, root: Path, project_id: str):
+    """章节场景的工具表：复用规划查证的 6 个只读正典工具；spawn_writer 由循环特判。
+
+    记忆库句柄惰性构造——作者不触发工具就零开销；构造失败由调用处兜底为查询异常。
+    """
+    if not context.startswith("chapter_"):
+        return None
+    state: dict = {}
+
+    def _ctx():
+        if "ctx" not in state:
+            from novel_agent.api.routes import _mem_paths
+            from novel_agent.agents.planner_research import PlannerCtx
+            from novel_agent.llm import get_embedder
+            from novel_agent.memory import LongTermMemory, MidTermMemory
+            from novel_agent.rag import TemporalGraph
+
+            parts = context.split("_")
+            mid_p, vec_p, graph_p = _mem_paths(root, project_id)
+            state["ctx"] = PlannerCtx(
+                values, int(parts[1]), int(parts[2]), MidTermMemory(mid_p),
+                LongTermMemory(vec_p, embed_fn=get_embedder(cfg)), TemporalGraph(graph_p),
+            )
+        return state["ctx"]
+
+    from novel_agent.agents.planner_research import TOOL_EXEC
+
+    tools = {name: (lambda args, _fn=fn: _fn(_ctx(), args)) for name, fn in TOOL_EXEC.items()}
+    tools["spawn_writer"] = None  # 交互类：循环特判转交写手，不在后端执行
+    return tools
+
+
+def chat_reply_agent(project_id: str, context: str, message: str, root: Path, cfg: Config, values: dict):
+    """流式对话 + ReAct 工具循环：模型自主决定"先查证再回答"或"转交写手"。
+
+    产出 (kind, payload) 帧：
+    - ("token", 文本) 增量回复；("round", None) 新一轮开始（前端清空气泡重打）
+    - ("tool", {"name","arg"}) 工具查证提示；("spawn_writer", {"note"}) 转交写手信号
+    - ("error", 原因) 中断；("done", 完整回复) 结束
+    历史仍在结束后一次性落盘（只存作者可见的最终回复，工具轮不进历史）。
     """
     from novel_agent.agents import is_mock
 
@@ -358,29 +438,68 @@ def chat_reply_stream(project_id: str, context: str, message: str, root: Path, c
         reply = f"（模拟）已收到：{message}。可以继续补充想法，满意后让我「提出方案」整理成正式设定。"
         yield "token", reply
     else:
+        from novel_agent.llm.cost import record_usage
+
+        tools = _build_chat_tools(context, values, cfg, root, project_id)
         system = _system_for(context, values, cfg, root, project_id) + _CHAT_FORMAT_REQ
+        if tools:
+            system += (
+                "\n\n【工具】需要查证正典/前文时，可先调用以下只读工具再回答：\n"
+                f"{_CHAT_TOOL_MENU}\n"
+                "【调用格式】需要调用时在回复末尾单独输出一个代码块：\n"
+                '```json\n{"tool": "工具名", "args": {...}}\n```\n'
+                "系统会把查询结果回填给你继续作答；不需要时正常回答，不要输出这个 JSON 块。"
+                "作者让你开写、或你判断讨论已成熟可以动笔时，调用 spawn_writer 把任务转交写手"
+                "（note 写给写手的补充指令），正文由写手产出，你绝不自己写正文。"
+            )
         msgs = [{"role": "system", "content": system}] + history[-MAX_HISTORY:]
         llm = get_chat_model(_chat_tier(context), cfg)
-        reply = ""
-        usage = None
-        try:
-            for chunk in llm.stream(msgs):
-                text = _extract_text(getattr(chunk, "content", None))
-                if text:
-                    reply += text
-                    yield "token", text
-                chunk_usage = getattr(chunk, "usage_metadata", None)
-                if chunk_usage:
-                    usage = chunk_usage
-        except Exception as exc:
-            if reply:
-                yield "error", f"生成中断：{exc}"
-            else:
-                raise
-        if usage:
-            from novel_agent.llm.cost import record_usage
+        max_rounds = 1 + (CHAT_MAX_TOOL_ROUNDS if tools else 0)
 
-            record_usage(usage)
+        reply = ""
+        text = ""
+        for round_no in range(max_rounds):
+            yield "round", None
+            text = ""
+            usage = None
+            try:
+                for chunk in llm.stream(msgs):
+                    piece = _extract_text(getattr(chunk, "content", None))
+                    if piece:
+                        text += piece
+                        yield "token", piece
+                    chunk_usage = getattr(chunk, "usage_metadata", None)
+                    if chunk_usage:
+                        usage = chunk_usage
+            except Exception as exc:
+                if text:
+                    yield "error", f"生成中断：{exc}"
+                    break
+                raise
+            if usage:
+                record_usage(usage)
+            action = _parse_action(text) if tools else None
+            if action is None:
+                break
+            tool_name = str(action.get("tool") or "")
+            if tool_name == "spawn_writer":
+                yield "spawn_writer", {"note": str((action.get("args") or {}).get("note") or "")}
+                break
+            yield "tool", {"name": tool_name, "arg": _action_brief(action)}
+            fn = tools.get(tool_name)
+            try:
+                obs = fn(action.get("args") or {}) if fn else {"error": f"未知工具 {tool_name}"}
+            except Exception as exc:  # noqa: BLE001
+                obs = {"error": str(exc)}
+            msgs = msgs + [
+                {"role": "assistant", "content": text},
+                {
+                    "role": "user",
+                    "content": f"[Observation] {tool_name} → {json.dumps(obs, ensure_ascii=False)[:900]}\n"
+                    "请基于查询结果继续回答作者（同一问题不要重复查询）。",
+                },
+            ]
+        reply = reply or _strip_action(text)
 
     history.append({"role": "assistant", "content": reply})
     save_history(path, history)

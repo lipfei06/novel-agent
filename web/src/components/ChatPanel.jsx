@@ -47,8 +47,9 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
     setBusy(true)
     setError(null)
     setInput('')
-    // 流式：乐观插入用户消息 + 空 AI 占位，SSE token 逐段填入（打字机效果）
+    // 流式：乐观插入用户消息 + 空 AI 占位；agent 循环下 token 逐段填入（打字机效果）
     setMessages((ms) => [...ms, { role: 'user', content: text }, { role: 'assistant', content: '' }])
+    let spawnNote = null
     try {
       const res = await fetch(`/api/projects/${projectId}/chat/stream`, {
         method: 'POST',
@@ -77,10 +78,38 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
               if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + evt.text }
               return next
             })
+          } else if (evt.type === 'round') {
+            // agent 新一轮：清空气泡重新打字（上一轮是查证意图，不是最终回答）
+            setMessages((ms) => {
+              const next = [...ms]
+              const last = next[next.length - 1]
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: '' }
+              return next
+            })
+          } else if (evt.type === 'tool') {
+            setMessages((ms) => {
+              const next = [...ms]
+              const last = next[next.length - 1]
+              if (last?.role === 'assistant') {
+                const head = last.content ? `${last.content}\n` : ''
+                next[next.length - 1] = { ...last, content: `${head}🔍 已查证：${evt.name}（${evt.arg}）\n\n` }
+              }
+              return next
+            })
+          } else if (evt.type === 'spawn_writer') {
+            // 模型自己决定转交写手：收到信号后走生成任务管线（生成→审查→人工确认）
+            spawnNote = evt.note || ''
           } else if (evt.type === 'error') {
             setError(evt.message)
           }
         }
+      }
+      if (spawnNote !== null && onWriteRequest) {
+        setMessages((ms) => [
+          ...ms,
+          { role: 'assistant', content: '✍️ 已把任务转交给写手智能体，开始生成本章（生成 → 审查 → 人工确认）…' },
+        ])
+        onWriteRequest(spawnNote)
       }
       setProposal(null)
       load() // 以服务端落盘的完整历史为准

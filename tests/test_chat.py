@@ -113,3 +113,21 @@ def test_chat_stream_sse():
         assert len(hist) == 2
         # 非法场景 → 400
         assert c.post("/api/projects/pC7/chat/stream", json={"context": "nope", "message": "x"}).status_code == 400
+
+
+def test_chat_agent_action_parsing():
+    from novel_agent.api.chat import _parse_action, _strip_action
+
+    fenced = '我先查证一下。\n```json\n{"tool": "get_prop_facts", "args": {"name": "玉佩"}}\n```\n'
+    a = _parse_action(fenced)
+    assert a and a["tool"] == "get_prop_facts" and a["args"]["name"] == "玉佩"
+    bare = '思考中…\n{"tool": "spawn_writer", "args": {"note": "加点反转"}}'
+    assert _parse_action(bare)["tool"] == "spawn_writer"
+    # 最终回答（无工具块）→ None；多个工具块取最后一个
+    assert _parse_action("正常回答，没有工具。") is None
+    two = fenced + '```json\n{"tool": "query_vector", "args": {}}\n```'
+    assert _parse_action(two)["tool"] == "query_vector"
+    # 剥离后不残留调用块
+    assert _strip_action(fenced).strip() == "我先查证一下。"
+    assert '{"tool"' not in _strip_action(bare)
+    assert "思考中…" in _strip_action(bare)

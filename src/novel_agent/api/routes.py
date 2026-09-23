@@ -934,15 +934,16 @@ def chat_send(project_id: str, body: ChatIn, request: Request) -> dict:
 
 @router.post("/projects/{project_id}/chat/stream")
 def chat_send_stream(project_id: str, body: ChatIn, request: Request):
-    """chat_send 的 SSE 流式版：逐 token 推送，前端打字机渲染。
+    """chat_send 的 SSE 流式版：agent 循环逐 token 推送（章节场景带 ReAct 工具）。
 
-    事件帧：data: {"type":"token","text":...} / {"type":"error","message":...} / {"type":"done"}
+    事件帧：token 增量 / round 新一轮 / tool 查证提示 / spawn_writer 转交写手 /
+    error 中断 / done 结束。
     """
     import json as _json
 
     from fastapi.responses import StreamingResponse
 
-    from novel_agent.api.chat import chat_reply_stream, valid_context
+    from novel_agent.api.chat import chat_reply_agent, valid_context
 
     pm = _pm(request)
     try:
@@ -957,11 +958,17 @@ def chat_send_stream(project_id: str, body: ChatIn, request: Request):
 
     def gen():
         try:
-            for kind, payload in chat_reply_stream(
+            for kind, payload in chat_reply_agent(
                 project_id, body.context, body.message, request.app.state.root, cfg, values
             ):
                 if kind == "token":
                     yield f"data: {_json.dumps({'type': 'token', 'text': payload}, ensure_ascii=False)}\n\n"
+                elif kind == "round":
+                    yield 'data: {"type": "round"}\n\n'
+                elif kind == "tool":
+                    yield f"data: {_json.dumps({'type': 'tool', 'name': payload['name'], 'arg': payload['arg']}, ensure_ascii=False)}\n\n"
+                elif kind == "spawn_writer":
+                    yield f"data: {_json.dumps({'type': 'spawn_writer', 'note': payload['note']}, ensure_ascii=False)}\n\n"
                 elif kind == "error":
                     yield f"data: {_json.dumps({'type': 'error', 'message': payload}, ensure_ascii=False)}\n\n"
                 elif kind == "done":
