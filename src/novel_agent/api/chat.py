@@ -286,8 +286,34 @@ def _system_for(context: str, values: dict, cfg: Config, root: Path, project_id:
         return (
             f"你是章节创作助手。帮用户讨论第{vol}卷第{ch}章怎么写/怎么改。参考以下项目上下文：\n"
             f"{vol_info}{current}{mem}\n{rag}\n给出具体建议。用户满意后可让系统「提出方案」输出新章节。"
+            "\n\n【硬性约束】绝不在对话里直接输出整章正文——作者让你开写/开始这一章时，"
+            "只回复两三句确认创作要点，正式正文由系统的写手智能体在生成流程中产出。"
         )
     return "你是创作助手，帮用户讨论并完善设定。"
+
+
+_CHAT_FORMAT_REQ = (
+    "\n\n【格式要求】请用清晰的结构化 Markdown 回复，像资深编辑和作者交流那样："
+    "善用**加粗**强调关键结论、用 `-` 列表罗列要点、适当使用小节标题（## 或 ###）、"
+    "用编号步骤说明方案，让作者一目了然、便于快速阅读。"
+)
+
+
+def _chat_tier(context: str) -> str:
+    """规划类助手（总编/总纲/卷）用 creative 档提升讨论质量，其余保持 cheap。"""
+    return "creative" if (context in ("outline", "chief") or context.startswith("volume_")) else "cheap"
+
+
+def _extract_text(content) -> str:
+    """兼容 content 为列表（部分 OpenAI 兼容模型返回结构化片段）。"""
+    if isinstance(content, list):
+        texts = [
+            (p.get("text") if isinstance(p, dict) else str(p))
+            for p in content
+            if (isinstance(p, dict) and p.get("text")) or not isinstance(p, dict)
+        ]
+        return "\n".join(t for t in texts if t)
+    return "" if content is None else str(content)
 
 
 def chat_reply(project_id: str, context: str, message: str, root: Path, cfg: Config, values: dict) -> tuple[str, list[dict]]:
@@ -302,35 +328,63 @@ def chat_reply(project_id: str, context: str, message: str, root: Path, cfg: Con
     if is_mock():
         reply = f"（模拟）已收到：{message}。可以继续补充想法，满意后让我「提出方案」整理成正式设定。"
     else:
-        system = _system_for(context, values, cfg, root, project_id)
-        system += (
-            "\n\n【格式要求】请用清晰的结构化 Markdown 回复，像资深编辑和作者交流那样："
-            "善用**加粗**强调关键结论、用 `-` 列表罗列要点、适当使用小节标题（## 或 ###）、"
-            "用编号步骤说明方案，让作者一目了然、便于快速阅读。"
-        )
+        system = _system_for(context, values, cfg, root, project_id) + _CHAT_FORMAT_REQ
         msgs = [{"role": "system", "content": system}] + history[-MAX_HISTORY:]
-        # 规划类助手（总编/总纲/卷）用 creative 档提升讨论质量，其余保持 cheap
-        tier = "creative" if (context in ("outline", "chief") or context.startswith("volume_")) else "cheap"
-        llm = get_chat_model(tier, cfg)
+        llm = get_chat_model(_chat_tier(context), cfg)
         resp = llm.invoke(msgs)
         from novel_agent.llm.cost import extract_usage
 
         record_usage(extract_usage(resp))
-        content = resp.content
-        # 兼容 content 为列表（部分 OpenAI 兼容模型返回结构化片段）
-        if isinstance(content, list):
-            texts = [
-                (p.get("text") if isinstance(p, dict) else str(p))
-                for p in content
-                if (isinstance(p, dict) and p.get("text")) or not isinstance(p, dict)
-            ]
-            reply = "\n".join(t for t in texts if t)
-        else:
-            reply = str(content)
+        reply = _extract_text(resp.content)
 
     history.append({"role": "assistant", "content": reply})
     save_history(path, history)
     return reply, history
+
+
+def chat_reply_stream(project_id: str, context: str, message: str, root: Path, cfg: Config, values: dict):
+    """chat_reply 的流式版：生成器逐段产出 (kind, payload)。
+
+    kind: "token" 增量文本 / "error" 中断原因 / "done" 结束（payload 为完整回复）。
+    历史仍在结束后一次性落盘——流式只是传输层，存储语义与 chat_reply 一致。
+    """
+    from novel_agent.agents import is_mock
+
+    path = _chat_path(root, project_id, context)
+    history = load_history(path)
+    history.append({"role": "user", "content": message})
+
+    if is_mock():
+        reply = f"（模拟）已收到：{message}。可以继续补充想法，满意后让我「提出方案」整理成正式设定。"
+        yield "token", reply
+    else:
+        system = _system_for(context, values, cfg, root, project_id) + _CHAT_FORMAT_REQ
+        msgs = [{"role": "system", "content": system}] + history[-MAX_HISTORY:]
+        llm = get_chat_model(_chat_tier(context), cfg)
+        reply = ""
+        usage = None
+        try:
+            for chunk in llm.stream(msgs):
+                text = _extract_text(getattr(chunk, "content", None))
+                if text:
+                    reply += text
+                    yield "token", text
+                chunk_usage = getattr(chunk, "usage_metadata", None)
+                if chunk_usage:
+                    usage = chunk_usage
+        except Exception as exc:
+            if reply:
+                yield "error", f"生成中断：{exc}"
+            else:
+                raise
+        if usage:
+            from novel_agent.llm.cost import record_usage
+
+            record_usage(usage)
+
+    history.append({"role": "assistant", "content": reply})
+    save_history(path, history)
+    yield "done", reply
 
 
 def propose(project_id: str, context: str, target: str, root: Path, cfg: Config, values: dict) -> dict:

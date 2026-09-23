@@ -4,8 +4,9 @@ import { api } from '../api/client.js'
 
 // 创作对话面板：多轮讨论 + 「提出方案」应用到表单
 export default function ChatPanel({ projectId, context, title, target, onApply, placeholder, hidePropose = false, onWriteRequest }) {
-  // 写作意图：作者在聊天里说"直接写/开写"等，直接触发生成任务而不是聊天回复
-  const WRITE_INTENT_RE = /(直接写|开写|写这[一章章]|生成[本这]一章|可以写了|开始写正文|写正文)/
+  // 写作意图：作者在聊天里说"直接写/开写/开始这一章/按你说的写"等，直接触发生成任务而不是聊天回复
+  const WRITE_INTENT_RE =
+    /(直接写|开写|写这[一章章]|写下一章|开始这[一章章]|开始写|接着写|继续写|可以写了|可以开写|生成[本这]?一?章|写正文|写吧|就这么写|按.{0,6}写)/
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -31,22 +32,61 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
   const send = async () => {
     const text = input.trim()
     if (!text || busy) return
-    // 写作意图直通：本章页传入 onWriteRequest 时，命中意图直接触发生成任务（流式），
+    // 写作意图直通：本章页传入 onWriteRequest 时，命中意图把指令转交写手智能体（走生成→审查→人工确认），
     // 不再走聊天回复——避免把正文当聊天内容写在对话框里
     if (onWriteRequest && WRITE_INTENT_RE.test(text)) {
       setInput('')
+      setMessages((ms) => [
+        ...ms,
+        { role: 'user', content: text },
+        { role: 'assistant', content: '✍️ 已把这条指令连同讨论要点转交给写手智能体，开始生成本章…' },
+      ])
       onWriteRequest(text)
       return
     }
     setBusy(true)
     setError(null)
+    setInput('')
+    // 流式：乐观插入用户消息 + 空 AI 占位，SSE token 逐段填入（打字机效果）
+    setMessages((ms) => [...ms, { role: 'user', content: text }, { role: 'assistant', content: '' }])
     try {
-      const r = await api.chatSend(projectId, context, input.trim())
-      setMessages(r.messages)
-      setInput('')
+      const res = await fetch(`/api/projects/${projectId}/chat/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ context, message: text }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      if (!res.body) throw new Error('浏览器不支持流式读取')
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const frames = buf.split('\n\n')
+        buf = frames.pop() ?? ''
+        for (const frame of frames) {
+          const line = frame.split('\n').find((l) => l.startsWith('data: '))
+          if (!line) continue
+          const evt = JSON.parse(line.slice(6))
+          if (evt.type === 'token') {
+            setMessages((ms) => {
+              const next = [...ms]
+              const last = next[next.length - 1]
+              if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: last.content + evt.text }
+              return next
+            })
+          } else if (evt.type === 'error') {
+            setError(evt.message)
+          }
+        }
+      }
       setProposal(null)
+      load() // 以服务端落盘的完整历史为准
     } catch (e) {
       setError(e.message)
+      load()
     } finally {
       setBusy(false)
     }

@@ -932,6 +932,50 @@ def chat_send(project_id: str, body: ChatIn, request: Request) -> dict:
     return {"reply": reply, "messages": history}
 
 
+@router.post("/projects/{project_id}/chat/stream")
+def chat_send_stream(project_id: str, body: ChatIn, request: Request):
+    """chat_send 的 SSE 流式版：逐 token 推送，前端打字机渲染。
+
+    事件帧：data: {"type":"token","text":...} / {"type":"error","message":...} / {"type":"done"}
+    """
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from novel_agent.api.chat import chat_reply_stream, valid_context
+
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if not valid_context(body.context):
+        raise HTTPException(status_code=400, detail="未知的对话场景")
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="消息不能为空")
+    _, runtime, values, cfg = _project_ctx(request, project_id, meta.genre)
+
+    def gen():
+        try:
+            for kind, payload in chat_reply_stream(
+                project_id, body.context, body.message, request.app.state.root, cfg, values
+            ):
+                if kind == "token":
+                    yield f"data: {_json.dumps({'type': 'token', 'text': payload}, ensure_ascii=False)}\n\n"
+                elif kind == "error":
+                    yield f"data: {_json.dumps({'type': 'error', 'message': payload}, ensure_ascii=False)}\n\n"
+                elif kind == "done":
+                    yield "data: {\"type\": \"done\"}\n\n"
+        except Exception as exc:
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(exc)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/projects/{project_id}/chat/structured")
 def chat_structured(project_id: str, body: ChatIn, request: Request) -> dict:
     """章节助手结构化回复：基于讨论输出 本章目标/冲突/钩子（JSON），供自动化流程消费。"""
@@ -1112,6 +1156,41 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
 
         techniques = values.get("techniques")
         blueprint = values.get("narrative_blueprint")
+
+        done_keys = sorted((values.get("chapters") or {}).keys(),
+                           key=lambda k: [int(p) for p in str(k).split("_")])
+        used_titles = [(values.get("chapters") or {})[k].get("title", "")
+                       for k in done_keys if (values.get("chapters") or {})[k].get("title")]
+
+        # 规划研究循环（react_enabled 时）：规划前先查证正典与前文
+        research_context = ""
+        if (cfg.planner or {}).get("react_enabled"):
+            try:
+                from novel_agent.llm.cost import set_chapter
+
+                set_chapter(f"{vol}_{chapter_no}")
+                _, vec_p, graph_p = _mem_paths(root, project_id)
+                from novel_agent.memory import LongTermMemory, MidTermMemory
+                from novel_agent.rag import TemporalGraph
+                from novel_agent.agents.planner_research import PlannerCtx, run_planner_research
+
+                midterm = MidTermMemory(_mem_paths(root, project_id)[0])
+                long_term = LongTermMemory(vec_p, embed_fn=get_embedder(cfg))
+                tgraph = TemporalGraph(graph_p)
+                ctx = PlannerCtx(values, vol, chapter_no, midterm, long_term, tgraph, used_titles=used_titles)
+
+                def _prog(msg):
+                    progress(f"规划查证：{msg}", 38)
+
+                research_context = run_planner_research(ctx, plan, cfg, None, _prog)
+                if research_context:
+                    progress("规划查证完成，结果已并入任务书素材", 44)
+            except Exception as exc:
+                from novel_agent.logutil import get_logger
+
+                get_logger().warning("[生成] 规划研究失败（降级为无查证）: %s", exc)
+                research_context = ""
+
         plan_tools = tools_for_chapter(
             root,
             {"goal": " ".join(plan.get("event_arc") or []), "hook": plan.get("ending_hook", ""), "title": plan.get("title", "")},
@@ -1119,19 +1198,14 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
         )
         if body.auto_plan:
             pending_fs = collect_pending_foreshadow(values.get("writer_packets"))
-            done_keys = sorted((values.get("chapters") or {}).keys(),
-                               key=lambda k: [int(p) for p in str(k).split("_")])
-            used_titles = [(values.get("chapters") or {})[k].get("title", "")
-                           for k in done_keys if (values.get("chapters") or {})[k].get("title")]
             packet = generate_writer_packet(
                 VolumePlan(**plan), Outline(**values.get("outline", {})), values.get("characters") or [],
                 chapter_no, cfg, discussion=discussion, pending_foreshadow=pending_fs,
                 techniques=techniques, blueprint=blueprint, tools=plan_tools,
                 event_ledger=values.get("event_ledger"), used_titles=used_titles,
                 prop_registry=values.get("prop_registry"),
+                research_context=research_context,
             )
-            if body.title:
-                packet = packet.model_copy(update={"title": body.title, "goal": body.goal or packet.goal})
             if body.title:
                 packet = packet.model_copy(update={"title": body.title, "goal": body.goal or packet.goal})
         else:

@@ -95,3 +95,21 @@ def test_chapter_generation_uses_discussion():
         r = c.post("/api/projects/pC5/volumes/1/chapters", json={"goal": "x", "chat_context": "chapter_1_1"})
         assert r.status_code == 200
         assert r.json()["pending"]["scenes"]
+
+
+def test_chat_stream_sse():
+    import json as _json
+
+    with _client() as c:
+        c.post("/api/projects", json={"title": "流", "genre": "short_story", "project_id": "pC7"})
+        r = c.post("/api/projects/pC7/chat/stream", json={"context": "concept", "message": "聊聊立意"})
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/event-stream")
+        events = [ln[6:] for ln in r.text.splitlines() if ln.startswith("data: ")]
+        types = [_json.loads(e)["type"] for e in events]
+        assert types == ["token", "done"]  # mock 一次整段 token + done
+        # 历史仍整体落盘：1 轮 = 2 条
+        hist = c.get("/api/projects/pC7/chat?context=concept").json()["messages"]
+        assert len(hist) == 2
+        # 非法场景 → 400
+        assert c.post("/api/projects/pC7/chat/stream", json={"context": "nope", "message": "x"}).status_code == 400

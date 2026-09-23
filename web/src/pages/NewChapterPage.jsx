@@ -46,7 +46,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
 
   const chatContext = `chapter_${vol}_${chapterNo}`
 
-  const generate = async (useForm) => {
+  const generate = async (useForm, chatNote) => {
     setGenerating(true)
     setError(null)
     setProgress({ message: '提交生成任务…', pct: 2 })
@@ -57,7 +57,8 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
         conflicts: useForm ? form.conflicts.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean) : [],
         hook: useForm ? form.hook : '',
         auto_plan: true,
-        notes: (useForm ? form.notes : quickNote).trim(),
+        // 聊天里触发的写作指令（如"加点梗让情节反转搞笑"）与快捷指令一起作为写作指令交给写手
+        notes: [useForm ? form.notes : quickNote, chatNote].filter(Boolean).join('\n').trim(),
         chat_context: chatContext,
         agentic,
       })
@@ -237,7 +238,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
             title={`章节助手 · 讨论第${chapterNo}章怎么写`}
             target="chapter"
             placeholder="自由聊这一章的想法/情节/对白/节奏……想好后点右上「按讨论生成本章」，AI 会自己提炼要点交给写手"
-            onWriteRequest={() => generate(false)}
+            onWriteRequest={(t) => generate(false, t)}
           />
           <p className="text-xs text-muted -mt-2">
             💡 想法聊清楚了就点右上「<span className="font-medium">按讨论生成本章</span>」——AI 会总结讨论要点，
