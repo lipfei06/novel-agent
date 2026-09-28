@@ -5,6 +5,7 @@ import json
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured, style_directive
+from novel_agent.skills import skill_text
 from novel_agent.types import Outline, VolumePlan
 from pydantic import BaseModel, Field
 
@@ -33,7 +34,8 @@ def generate_volume_plans(outline: Outline | dict, cfg: Config) -> list[VolumePl
         f"总纲：{json.dumps(outline_data, ensure_ascii=False)}\n"
         f"请细化各卷。每卷章数安排以上述 chapter_count 为准，不得增减。"
     )
-    messages = build_messages(SYSTEM_PROMPT, user, "volume_plan", cfg.token_budget, style=style_directive(cfg))
+    messages = build_messages(SYSTEM_PROMPT, user, "volume_plan", cfg.token_budget,
+                              style=style_directive(cfg), skill=skill_text("stage3b"))
     llm = get_chat_model("creative", cfg)
     result = invoke_structured(llm, messages, schema=VolumePlanList)
     plans = result.items

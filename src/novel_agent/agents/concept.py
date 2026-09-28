@@ -5,6 +5,7 @@ import json
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured, style_directive
+from novel_agent.skills import skill_text
 from novel_agent.types import Concept
 
 from . import is_mock
@@ -24,7 +25,8 @@ def generate_concept(inputs: dict, cfg: Config) -> Concept:
     )
     if is_mock():
         return _mock_concept(idea, cfg)
-    messages = build_messages(SYSTEM_PROMPT, user, "concept", cfg.token_budget, style=style_directive(cfg))
+    messages = build_messages(SYSTEM_PROMPT, user, "concept", cfg.token_budget,
+                              style=style_directive(cfg), skill=skill_text("stage0"))
     llm = get_chat_model("creative", cfg)
     return invoke_structured(llm, messages, schema=Concept)
 

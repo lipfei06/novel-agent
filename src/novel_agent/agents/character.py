@@ -6,6 +6,7 @@ from pathlib import Path
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured, style_directive
+from novel_agent.skills import skill_text
 from novel_agent.types import Character, Concept, WorldBible
 from novel_agent.library import PersonalityEntry
 from novel_agent.library.searcher import personality_for, templates_for
@@ -88,7 +89,8 @@ def generate_characters(
     )
     if is_mock():
         return _mock_characters(concept_data, personalities)
-    messages = build_messages(SYSTEM_PROMPT, user, "character", cfg.token_budget, style=style_directive(cfg))
+    messages = build_messages(SYSTEM_PROMPT, user, "character", cfg.token_budget,
+                              style=style_directive(cfg), skill=skill_text("stage2"))
     llm = get_chat_model("creative", cfg)
     result = invoke_structured(llm, messages, schema=CharacterList)
     return result.items

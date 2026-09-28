@@ -32,9 +32,15 @@ def guard_tokens(stage: str, parts: dict[str, str], budget: dict[str, int]) -> i
     return total
 
 
-def build_messages(system: str, user: str, stage: str, budget: dict[str, int], style: str = "") -> list[dict[str, str]]:
-    """装配 system/user 消息并过预算守卫。style 为题材风格指令，追加到 system。"""
-    guard_tokens(stage, {"system": system, "user": user}, budget)
+def build_messages(system: str, user: str, stage: str, budget: dict[str, int], style: str = "", skill: str = "") -> list[dict[str, str]]:
+    """装配 system/user 消息并过预算守卫。
+
+    system 之后的注入顺序（冲突时越靠后越具体、越优先）：skill 手艺指导 → 题材风格指令。
+    skill 计入预算守卫（约 300-600 token），style 沿用旧行为不计。
+    """
+    guard_tokens(stage, {"system": f"{system}\n\n{skill}" if skill else system, "user": user}, budget)
+    if skill:
+        system = f"{system}\n\n{skill}"
     if style:
         system = f"{system}\n\n{style}"
     return [

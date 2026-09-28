@@ -5,6 +5,7 @@ import json
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured, style_directive
+from novel_agent.skills import skill_text
 from novel_agent.types import Character, Concept, Outline, VolumePlan, WorldBible
 
 from . import is_mock
@@ -34,7 +35,8 @@ def generate_outline(
         f"每卷固定 {cfg.genre.chapters_per_volume} 章（每卷的 chapter_count 必须恰好等于该值，不得增减）。\n"
         f"请设计 {volumes} 卷的总纲。"
     )
-    messages = build_messages(SYSTEM_PROMPT, user, "outline", cfg.token_budget, style=style_directive(cfg))
+    messages = build_messages(SYSTEM_PROMPT, user, "outline", cfg.token_budget,
+                              style=style_directive(cfg), skill=skill_text("stage3"))
     llm = get_chat_model("creative", cfg)
     outline = invoke_structured(llm, messages, schema=Outline)
     # 章数硬绑定（LLM 自定章数会偏离全书字数目标：剧情内容归 LLM，长度归配置）

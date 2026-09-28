@@ -5,6 +5,7 @@ import json
 
 from novel_agent.config import Config
 from novel_agent.llm import build_messages, get_chat_model, invoke_structured, style_directive
+from novel_agent.skills import skill_text
 from novel_agent.types import Concept, WorldBible
 
 from . import is_mock
@@ -23,7 +24,8 @@ def generate_world(concept: Concept | dict, cfg: Config) -> WorldBible:
     )
     if is_mock():
         return _mock_world(concept_data, cfg)
-    messages = build_messages(SYSTEM_PROMPT, user, "world", cfg.token_budget, style=style_directive(cfg))
+    messages = build_messages(SYSTEM_PROMPT, user, "world", cfg.token_budget,
+                              style=style_directive(cfg), skill=skill_text("stage1"))
     llm = get_chat_model("creative", cfg)
     return invoke_structured(llm, messages, schema=WorldBible)
 
