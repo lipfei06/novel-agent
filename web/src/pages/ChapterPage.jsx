@@ -264,6 +264,17 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
       <div className="flex gap-5 items-stretch">
         {/* 左：正文内容 */}
         <div className="flex-1 min-w-0 space-y-4">
+          {editing && (
+            <div className="card p-4">
+              <label className="text-xs text-muted mb-1.5 block">章节标题</label>
+              <input
+                className="input font-medium"
+                value={draft.title ?? ''}
+                placeholder="第X章标题"
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              />
+            </div>
+          )}
           {(scenes ?? []).map((s, i) =>
             editing ? (
               <div key={s.id ?? i} className="card p-4 space-y-2.5">
