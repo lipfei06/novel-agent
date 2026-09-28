@@ -7,6 +7,7 @@ const FIELDS = {
   character_template: ['name', 'role', 'description', 'motivation', 'flaw', 'behavior', 'dialogue_style', 'tags', 'applicable_genres'],
   technique: ['name', 'category', 'mode', 'apply_stage', 'description', 'guidance', 'checklist', 'tags'],
   meme: ['name', 'category', 'kind', 'description', 'content', 'usage', 'emotion', 'risk', 'as_of', 'tags'],
+  style: ['name', 'digest', 'text', 'tags', 'as_of'],
 }
 
 const TABS = [
@@ -15,6 +16,7 @@ const TABS = [
   ['character_template', '人物模板库'],
   ['technique', '写作手法库'],
   ['meme', '梗库'],
+  ['style', '仿写库'],
 ]
 
 const LIST_FIELDS = new Set(['tags', 'behavior_patterns', 'strengths', 'weaknesses', 'examples', 'common_mistakes', 'applicable_genres', 'checklist'])
@@ -34,7 +36,9 @@ const FIELD_META = {
   usage: { label: '用法（什么剧情/情绪下用）', textarea: true },
   emotion: { label: '情绪色彩（喜/丧/讽/燃…）' },
   risk: { label: '风险等级', select: [['safe', 'safe（化用安全）'], ['caution', 'caution（明梗注意限流）'], ['avoid', 'avoid（直接引用，勿用）']] },
-  as_of: { label: '时效锚点（YYYY-MM）' },
+  as_of: { label: '入库时间（YYYY-MM）' },
+  digest: { label: '风格要点（声线采样：人称/节奏/用词/对话占比；可留空由 AI 提取）', textarea: true },
+  text: { label: '样本原文（≤800 字，写手将模仿其口吻与节奏）', textarea: true },
   behavior_patterns: { label: '行为模式（逗号分隔）', list: true },
   dialogue_style: { label: '对话风格' },
   strengths: { label: '优点（逗号分隔）', list: true },

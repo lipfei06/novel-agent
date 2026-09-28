@@ -396,6 +396,30 @@ def test_quality_gate_and_style_samples():
         assert c.delete("/api/projects/apiQ/chapters/1/1").status_code == 200
 
 
+def test_style_library():
+    """仿写库：预置条目 + 粘贴提取（mock→确定性要点）+ 泛型 CRUD + 注入带要点。"""
+    with _client() as c:
+        lst = c.get("/api/library/style").json()["entries"]
+        assert any(e["id"] == "style_cold_short" for e in lst)
+        # 粘贴提取：mock 模式用确定性统计当风格要点
+        r = c.post("/api/library/styles/extract",
+                   json={"text": "他把烟按灭在鞋底上。\n没抬头。\n「走吧。」他说。\n「去哪。」我问。"})
+        assert r.status_code == 200
+        entry = r.json()["entry"]
+        assert entry["digest"] and "字" in entry["digest"] and entry["text"].startswith("他把烟")
+        # 泛型手工新增 + 删除
+        assert c.post("/api/library/style",
+                      json={"id": "style_manual", "name": "手工", "text": "测试样本"}).status_code == 200
+        assert c.delete("/api/library/style/style_manual").status_code == 200
+        # 写手注入：digest 进要点行
+        from novel_agent.agents.write import _style_note
+
+        note = _style_note([{"id": "s", "name": "冷峻", "text": "原文片段", "digest": "短句为主"}])
+        assert "风格要点：短句为主" in note and "原文片段" in note
+        note2 = _style_note([{"id": "s", "name": "无要点", "text": "原文片段"}])
+        assert "风格要点" not in note2 and "原文片段" in note2
+
+
 def test_update_chapter():
     with _client() as c:
         c.post("/api/projects", json={"title": "改章", "genre": "short_story", "project_id": "apiU"})

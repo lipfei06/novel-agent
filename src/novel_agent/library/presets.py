@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from .memes import MEME_PRESETS
+from .styles import STYLE_PRESETS
 from .personality import PersonalityEntry
 from .techniques import TechniqueEntry
 from .tools import NovelToolEntry
@@ -552,4 +553,5 @@ PRESETS: dict[str, list[object]] = {
     "character_template": CHARACTER_TEMPLATE_PRESETS,
     "technique": TECHNIQUE_PRESETS,
     "meme": MEME_PRESETS,
+    "style": STYLE_PRESETS,
 }

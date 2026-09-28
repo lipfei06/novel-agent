@@ -41,7 +41,9 @@ def _style_note(style_samples: list[dict] | None) -> str:
         if not text:
             continue
         name = (s or {}).get("name") or f"样本{i + 1}"
-        parts.append(f"【{name}】\n{text[:MAX_STYLE_SAMPLE_CHARS]}")
+        digest = (s or {}).get("digest", "").strip()
+        head = f"【{name}】风格要点：{digest}\n原文：" if digest else f"【{name}】"
+        parts.append(f"{head}\n{text[:MAX_STYLE_SAMPLE_CHARS]}")
     if not parts:
         return ""
     return (

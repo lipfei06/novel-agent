@@ -1,6 +1,7 @@
 """写作基础库：性格库 + 小说工具库 + 人物模板库 + 写作手法库 + 梗库（F17）。"""
 from .index import LibraryIndex
 from .memes import MemeEntry, MEME_PRESETS, extract_memes_from_text, must_use_memes_text, populate_memes
+from .styles import StyleEntry, STYLE_PRESETS, analyze_style_sample, new_style_entry
 from .personality import PersonalityEntry
 from .presets import PERSONALITY_PRESETS, PRESETS, TECHNIQUE_PRESETS, TOOL_PRESETS
 from .searcher import (
@@ -25,6 +26,10 @@ __all__ = [
     "NovelToolEntry",
     "TechniqueEntry",
     "MemeEntry",
+    "StyleEntry",
+    "STYLE_PRESETS",
+    "analyze_style_sample",
+    "new_style_entry",
     "CharacterTemplate",
     "PERSONALITY_PRESETS",
     "TOOL_PRESETS",

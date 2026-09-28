@@ -1720,8 +1720,13 @@ def update_style_samples(project_id: str, body: StyleSamplesIn, request: Request
         if len(text) > MAX_STYLE_SAMPLE_CHARS:
             raise HTTPException(status_code=400,
                                 detail=f"样本「{s.get('name') or '未命名'}」超过 {MAX_STYLE_SAMPLE_CHARS} 字上限")
-        samples.append({"id": s.get("id") or f"st{len(samples) + 1}", "name": (s.get("name") or "").strip(),
-                        "text": text})
+        item = {"id": s.get("id") or f"st{len(samples) + 1}", "name": (s.get("name") or "").strip(),
+                "text": text}
+        if (s.get("digest") or "").strip():
+            item["digest"] = s["digest"].strip()
+        if s.get("source_id"):
+            item["source_id"] = s["source_id"]
+        samples.append(item)
     if len(samples) > MAX_STYLE_SAMPLES:
         raise HTTPException(status_code=400, detail=f"最多 {MAX_STYLE_SAMPLES} 段样本")
     runtime.graph.update_state(runtime.thread, {"style_samples": samples})
@@ -1819,11 +1824,12 @@ def final_files(project_id: str, request: Request) -> dict:
     return {"files": files}
 
 
-_LIBRARY_KINDS = ("personality", "tool", "character_template", "technique", "meme")
+_LIBRARY_KINDS = ("personality", "tool", "character_template", "technique", "meme", "style")
+_KIND_LABEL = "personality / tool / character_template / technique / meme / style"
 
 
 def _library_model(kind: str):
-    from novel_agent.library import MemeEntry, NovelToolEntry, PersonalityEntry, TechniqueEntry
+    from novel_agent.library import MemeEntry, NovelToolEntry, PersonalityEntry, StyleEntry, TechniqueEntry
     from novel_agent.types.character_template import CharacterTemplate
 
     models = {
@@ -1832,6 +1838,7 @@ def _library_model(kind: str):
         "character_template": CharacterTemplate,
         "technique": TechniqueEntry,
         "meme": MemeEntry,
+        "style": StyleEntry,
     }
     return models[kind]
 
@@ -1841,7 +1848,7 @@ def library_list(kind: str, request: Request) -> dict:
     from novel_agent.library import LibraryStore, PRESETS
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
+        raise HTTPException(status_code=400, detail=f"kind 仅支持 {_KIND_LABEL}")
     base = Path(request.app.state.root) / "output" / "libraries"
     store = LibraryStore(base)
     store.seed(PRESETS)
@@ -1901,12 +1908,35 @@ def library_memes_extract(body: dict, request: Request) -> dict:
     return {"ok": True, "added": len(added), "entries": [e.model_dump() for e in added]}
 
 
+@router.post("/library/styles/extract")
+def library_styles_extract(body: dict, request: Request) -> dict:
+    """粘贴提取：作者粘贴认可的文本 → 声线采样提取风格要点 → 建仿写库条目。"""
+    from novel_agent.config import load_config
+    from novel_agent.library import LibraryStore, PRESETS, analyze_style_sample, new_style_entry
+
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="粘贴内容不能为空")
+    base = Path(request.app.state.root) / "output" / "libraries"
+    store = LibraryStore(base)
+    store.seed(PRESETS)
+    cfg = load_config(Path(request.app.state.root) / "config.yaml")
+    try:
+        ana = analyze_style_sample(text, cfg)
+        entry = new_style_entry(text, name=str(body.get("name") or ""),
+                                digest=ana["digest"], tags=ana["tags"])
+        store.add("style", entry)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"提取失败：{exc}") from exc
+    return {"ok": True, "entry": entry.model_dump()}
+
+
 @router.post("/library/{kind}")
 def library_add(kind: str, body: dict, request: Request) -> dict:
     from novel_agent.library import LibraryStore, PRESETS
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
+        raise HTTPException(status_code=400, detail=f"kind 仅支持 {_KIND_LABEL}")
     try:
         entry = _library_model(kind)(**body)
     except Exception as exc:
@@ -1926,7 +1956,7 @@ def library_update(kind: str, entry_id: str, body: dict, request: Request) -> di
     from novel_agent.library import LibraryStore
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
+        raise HTTPException(status_code=400, detail=f"kind 仅支持 {_KIND_LABEL}")
     base = Path(request.app.state.root) / "output" / "libraries"
     try:
         updated = LibraryStore(base).update(kind, entry_id, body)
@@ -1940,7 +1970,7 @@ def library_delete(kind: str, entry_id: str, request: Request) -> dict:
     from novel_agent.library import LibraryStore
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
+        raise HTTPException(status_code=400, detail=f"kind 仅支持 {_KIND_LABEL}")
     base = Path(request.app.state.root) / "output" / "libraries"
     try:
         LibraryStore(base).delete(kind, entry_id)

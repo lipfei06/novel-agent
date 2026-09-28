@@ -19,7 +19,9 @@ from .techniques import TechniqueEntry
 from .tools import NovelToolEntry
 from novel_agent.types.character_template import CharacterTemplate
 
-Kind = Literal["personality", "tool", "character_template", "technique", "meme"]
+from .styles import StyleEntry
+
+Kind = Literal["personality", "tool", "character_template", "technique", "meme", "style"]
 
 _MODELS: dict[Kind, type] = {
     "personality": PersonalityEntry,
@@ -27,6 +29,7 @@ _MODELS: dict[Kind, type] = {
     "character_template": CharacterTemplate,
     "technique": TechniqueEntry,
     "meme": MemeEntry,
+    "style": StyleEntry,
 }
 
 

@@ -85,6 +85,8 @@ export const api = {
     }),
   updateStyleSamples: (id, samples) =>
     request(`/projects/${id}/style-samples`, { method: 'PUT', body: JSON.stringify({ samples }) }),
+  extractStyleSample: (text, name) =>
+    request('/library/styles/extract', { method: 'POST', body: JSON.stringify({ text, name }) }),
   setProjectTechniques: (id, ids) =>
     request(`/projects/${id}/techniques`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   generateBlueprint: (id) => request(`/projects/${id}/blueprint/generate`, { method: 'POST' }),
