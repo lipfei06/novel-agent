@@ -244,3 +244,109 @@ def populate_memes(root, topic: str, count: int, cfg: Config, store=None) -> lis
         except ValueError:
             continue  # 同 id 极小概率撞车，跳过
     return added
+
+
+_EXTRACT_SYSTEM = (
+    "你是网络流行文化研究员。作者会粘贴一段素材（网页摘录/段子/梗的罗列/聊天记录等），"
+    "从中提取可复用于小说写作的网络梗与流行句式，输出结构化条目。\n"
+    "要求：\n"
+    "- 每条给：梗名（name）、题材类目（category）、类型 kind（句式梗/名场面梗/谐音梗/情绪梗/行话梗）、"
+    "一句话说明 description、梗本体 content（含示例句）、用法 usage、情绪色彩 emotion、"
+    "风险 risk（素材里是化用/自创 → safe；明确指向某个流行梗原句 → caution；"
+    "内容是直接引用他人作品台词/歌词 → avoid）、标签 tags\n"
+    "- 提取素材里真实存在的梗，不要自己发明新梗；素材里没有可用梗就返回空列表\n"
+    "- 与已有梗重名的跳过。只输出 JSON。"
+)
+
+
+def extract_memes_from_text(root, text: str, cfg: Config, store=None) -> list[MemeEntry]:
+    """从作者粘贴的素材中提取梗条目入库（按名称去重）。返回实际新增条目。"""
+    from novel_agent.library.searcher import default_store
+
+    store = store or default_store(root)
+    text = str(text or "").strip()
+    if not text:
+        return []
+    existing = {e.name for e in store.list("meme")}
+
+    if is_mock():
+        new = [
+            MemeEntry(
+                id=f"meme_extract_{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                name=f"（模拟提取）{text[:12]}",
+                category="通用",
+                kind="句式梗",
+                description="模拟从粘贴素材提取的条目",
+                content=text[:60],
+                usage="素材原文出现，用法待补充",
+                emotion="喜",
+                risk="safe",
+                as_of=datetime.now().strftime("%Y-%m"),
+                tags=["提取"],
+            )
+        ]
+    else:
+        user = (
+            f"已有梗名（勿重复）：{'、'.join(sorted(existing))[:1200] or '（空）'}\n"
+            f"粘贴素材：\n{text[:4000]}\n请提取梗条目。"
+        )
+        llm = get_chat_model("cheap", cfg)
+        messages = build_messages(_EXTRACT_SYSTEM, user, "state_update", cfg.token_budget)
+        result = invoke_structured(llm, messages, schema=MemeList)
+        new = []
+        now = datetime.now().strftime("%Y-%m")
+        for e in result.items:
+            if not e.name.strip() or e.name in existing:
+                continue
+            if e.risk not in RISK_LEVELS:
+                e = e.model_copy(update={"risk": "safe"})
+            existing.add(e.name)
+            new.append(e.model_copy(update={
+                "id": f"meme_x_{datetime.now().strftime('%Y%m%d%H%M%S')}_{len(new)}",
+                "as_of": e.as_of or now,
+            }))
+
+    added = []
+    for entry in new:
+        try:
+            store.add("meme", entry)
+            added.append(entry)
+        except ValueError:
+            continue
+    return added
+
+
+def must_use_memes_text(root, names: list[str]) -> str:
+    """作者为本章指定的必用梗：按名称在梗库精确查找并渲染为硬性写作指令块。
+
+    库中找不到的名称列入"未找到"并忽略——必用梗必须来自库（有用法说明与风险分级），
+    不接受裸文本直塞写作提示。
+    """
+    from novel_agent.library.searcher import default_store
+
+    wanted = [str(n or "").strip() for n in (names or [])]
+    wanted = [n for n in wanted if n]
+    if not wanted:
+        return ""
+    store = default_store(root)
+    found: dict[str, MemeEntry] = {}
+    for e in store.list("meme"):
+        if e.name in wanted and e.risk != "avoid":
+            found[e.name] = e
+    missing = [n for n in wanted if n not in found]
+    if not found:
+        return ""
+    lines = [
+        "以下梗为作者指定，本章正文**必须**至少使用其中每一个一次："
+        "自然融入对白或叙述，放在合适的情绪转折点，不可生硬堆砌，不要解释梗本身。"
+    ]
+    for i, e in enumerate(found.values(), 1):
+        line = f"{i}. [{e.name}] {e.kind}：{e.content}"
+        if e.usage:
+            line += f" —— 用法：{e.usage}"
+        if e.risk == "caution":
+            line += "（caution：注意平台尺度，可化用结构不直接引用原句）"
+        lines.append(line)
+    if missing:
+        lines.append(f"（作者指定但梗库中未找到、已忽略：{'、'.join(missing)}）")
+    return "<本章必用梗>\n" + "\n".join(lines) + "\n</本章必用梗>"

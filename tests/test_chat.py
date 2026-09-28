@@ -91,10 +91,13 @@ def test_chapter_generation_uses_discussion():
                 break
         # 先与 AI 讨论章节
         c.post("/api/projects/pC5/chat", json={"context": "chapter_1_1", "message": "这章我想写身世揭晓"})
-        # 提交生成并带 chat_context
-        r = c.post("/api/projects/pC5/volumes/1/chapters", json={"goal": "x", "chat_context": "chapter_1_1"})
+        # 提交生成并带 chat_context + 必用梗（梗库先 seed）
+        c.get("/api/library/meme")
+        r = c.post("/api/projects/pC5/volumes/1/chapters",
+                   json={"goal": "x", "chat_context": "chapter_1_1", "must_use_memes": ["被优化了"]})
         assert r.status_code == 200
         assert r.json()["pending"]["scenes"]
+        assert "<本章必用梗>" in r.json()["context"]  # 必用梗作为硬性指令进入写作上下文
         # 任务书随章归档（追溯"这章按什么指令写的"）
         prods = c.get("/api/projects/pC5/products").json()
         assert (prods.get("writer_packets") or {}).get("1_1")

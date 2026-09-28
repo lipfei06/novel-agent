@@ -376,6 +376,7 @@ class ChapterFormIn(BaseModel):
     auto_plan: bool = True  # True: 由 AI 依据卷设定生成 writer_packet；False: 仅按表单生成
     chat_context: str = ""  # 章节对话场景（如 chapter_1_2），存在则把讨论内容纳入设计
     agentic: bool = False  # 智能研究模式：写手自主查询状态卡/伏笔账本/前文片段
+    must_use_memes: list[str] = []  # 作者指定的本章必用梗（按梗库名称精确匹配）
 
 
 def _project_ctx(request: Request, project_id: str, genre: str) -> tuple[RuntimeStore, ProjectRuntime, dict, Config]:
@@ -1237,6 +1238,13 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
             memory_context += f"\n\n<作者与AI讨论的设计>\n{discussion}\n</作者与AI讨论的设计>"
         if body.notes.strip():
             memory_context += f"\n\n<作者自定义写作指令>\n{body.notes.strip()}\n</作者自定义写作指令>"
+        # 作者指定的本章必用梗（硬性指令，优先级高于候选块）
+        if body.must_use_memes:
+            from novel_agent.library.memes import must_use_memes_text
+
+            must_block = must_use_memes_text(root, body.must_use_memes)
+            if must_block:
+                memory_context += f"\n\n{must_block}"
 
         # 智能研究模式：写手自主决定查询状态卡/伏笔账本/档案/前文片段
         research_digest = ""
@@ -1600,6 +1608,31 @@ def library_memes_populate(body: dict, request: Request) -> dict:
 
         get_logger().warning("[梗库] AI 填充失败: %s\n%s", topic, traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"AI 填充失败：{exc}") from exc
+    return {"ok": True, "added": len(added), "entries": [e.model_dump() for e in added]}
+
+
+@router.post("/library/memes/extract")
+def library_memes_extract(body: dict, request: Request) -> dict:
+    """粘贴提取：从作者粘贴的素材（网页摘录/段子罗列）中提取梗条目入库。"""
+    from novel_agent.config import load_config
+    from novel_agent.library import LibraryStore, PRESETS, extract_memes_from_text
+
+    text = str(body.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="粘贴内容不能为空")
+    base = Path(request.app.state.root) / "output" / "libraries"
+    store = LibraryStore(base)
+    store.seed(PRESETS)
+    cfg = load_config(Path(request.app.state.root) / "config.yaml")
+    try:
+        added = extract_memes_from_text(request.app.state.root, text, cfg, store=store)
+    except Exception as exc:
+        import traceback
+
+        from novel_agent.logutil import get_logger
+
+        get_logger().warning("[梗库] 粘贴提取失败: %s\n%s", text[:60], traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"提取失败：{exc}") from exc
     return {"ok": True, "added": len(added), "entries": [e.model_dump() for e in added]}
 
 

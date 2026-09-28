@@ -308,3 +308,35 @@ def test_populate_memes_dedupes_by_name():
         added = populate_memes(root, "职场", 3, cfg, store=store)
     assert added == []  # 重名全部被去重
     assert len(store.list("meme")) == before
+
+
+def test_extract_memes_mock():
+    os.environ.setdefault("NOVEL_ENGINE_MOCK", "1")
+    from novel_agent.config import load_config
+    from novel_agent.library import LibraryStore, extract_memes_from_text
+
+    root = Path(tempfile.mkdtemp())
+    (root / "config.yaml").write_text(
+        "genre: short_story\nllm:\n  cheap: { model: c, api_key_env: K }\n"
+        "token_budget: { state_update: 20000 }\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(root / "config.yaml")
+    store = LibraryStore(root / "output" / "libraries")
+    added = extract_memes_from_text(root, "网上看到的梗：退退退！", cfg, store=store)
+    assert len(added) == 1
+    assert extract_memes_from_text(root, "", cfg, store=store) == []  # 空文本 → 空
+
+
+def test_must_use_memes_text():
+    os.environ.setdefault("NOVEL_ENGINE_MOCK", "1")
+    from novel_agent.library import LibraryStore, PRESETS, must_use_memes_text
+
+    root = Path(tempfile.mkdtemp())
+    store = LibraryStore(root / "output" / "libraries")
+    store.seed(PRESETS)
+    assert must_use_memes_text(root, []) == ""
+    block = must_use_memes_text(root, ["被优化了", "不存在的梗"])
+    assert "<本章必用梗>" in block and "必须" in block and "被优化了" in block
+    assert "不存在的梗" in block and "未找到" in block  # 缺失名称注明忽略
+    assert must_use_memes_text(root, ["不存在的梗"]) == ""  # 全部缺失 → 空块

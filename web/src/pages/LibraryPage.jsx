@@ -171,8 +171,10 @@ export default function LibraryPage() {
 }
 
 function PopulateDialog({ onClose, onDone }) {
+  const [mode, setMode] = useState('generate') // generate=AI 生成 | extract=粘贴提取
   const [topic, setTopic] = useState('职场')
   const [count, setCount] = useState(10)
+  const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
 
@@ -180,8 +182,13 @@ function PopulateDialog({ onClose, onDone }) {
     setBusy(true)
     setErr(null)
     try {
-      const r = await api.populateMemes(topic, count)
-      onDone(`✨ AI 填充完成：新增 ${r.added} 条「${topic}」梗（重复的已自动跳过）`)
+      if (mode === 'generate') {
+        const r = await api.populateMemes(topic, count)
+        onDone(`✨ AI 填充完成：新增 ${r.added} 条「${topic}」梗（重复的已自动跳过）`)
+      } else {
+        const r = await api.extractMemes(text)
+        onDone(`✨ 提取完成：新增 ${r.added} 条梗（重名/无效的已自动跳过）`)
+      }
     } catch (e) {
       setErr(e.message)
     } finally {
@@ -189,27 +196,63 @@ function PopulateDialog({ onClose, onDone }) {
     }
   }
 
+  const valid = mode === 'generate' ? topic.trim() : text.trim()
+
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="card w-[420px] p-6" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-base font-semibold mb-2">AI 填充梗库</h3>
-        <p className="text-xs text-muted mb-4">
-          AI 按题材方向批量整理网络热梗/流行句式入库（自动跳过与库内重名的条目）。热梗有时效性，
-          条目带入库时间（as_of），是否仍流行由你判断，可随时删除。
-        </p>
-        <label className="block text-xs text-muted mb-1">
-          题材方向
-          <input className="input mt-1 mb-3" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="如：职场 / 情感 / 校园 / 玄幻" />
-        </label>
-        <label className="block text-xs text-muted mb-1">
-          数量（1-30）
-          <input className="input mt-1 mb-3" type="number" min="1" max="30" value={count} onChange={(e) => setCount(e.target.value)} />
-        </label>
+      <div className="card w-[480px] p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex gap-2 mb-3">
+          {[
+            ['generate', '✨ AI 生成'],
+            ['extract', '📋 粘贴提取'],
+          ].map(([m, label]) => (
+            <button
+              key={m}
+              className={`rounded px-3 py-1 text-sm transition ${mode === m ? 'bg-primary text-white' : 'text-muted hover:bg-black/5'}`}
+              onClick={() => { setMode(m); setErr(null) }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {mode === 'generate' ? (
+          <>
+            <p className="text-xs text-muted mb-4">
+              AI 按题材方向批量整理网络热梗/流行句式入库（自动跳过与库内重名的条目）。热梗有时效性，
+              条目带入库时间（as_of），是否仍流行由你判断，可随时删除。
+            </p>
+            <label className="block text-xs text-muted mb-1">
+              题材方向
+              <input className="input mt-1 mb-3" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="如：职场 / 情感 / 校园 / 玄幻" />
+            </label>
+            <label className="block text-xs text-muted mb-1">
+              数量（1-30）
+              <input className="input mt-1 mb-3" type="number" min="1" max="30" value={count} onChange={(e) => setCount(e.target.value)} />
+            </label>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-muted mb-4">
+              把你在网上刷到的梗随手复制过来（网页摘录/段子罗列/聊天记录都行），AI 从中提取结构化梗条目入库。
+              新鲜度由你把关，零外部依赖。
+            </p>
+            <label className="block text-xs text-muted mb-1">
+              粘贴素材
+              <textarea
+                className="input mt-1 mb-3"
+                rows={6}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="粘贴你在网上看到的梗/流行句…"
+              />
+            </label>
+          </>
+        )}
         {err && <div className="rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-xs mb-3">{err}</div>}
         <div className="flex justify-end gap-2">
           <button className="btn-ghost text-sm" onClick={onClose}>取消</button>
-          <button className="btn-primary text-sm" disabled={busy || !topic.trim()} onClick={submit}>
-            {busy ? '生成中…' : '开始填充'}
+          <button className="btn-primary text-sm" disabled={busy || !valid} onClick={submit}>
+            {busy ? '处理中…' : mode === 'generate' ? '开始填充' : '提取入库'}
           </button>
         </div>
       </div>

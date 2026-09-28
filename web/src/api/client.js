@@ -103,4 +103,6 @@ export const api = {
   libraryDelete: (kind, id) => request(`/library/${kind}/${id}`, { method: 'DELETE' }),
   populateMemes: (topic, count) =>
     request('/library/memes/populate', { method: 'POST', body: JSON.stringify({ topic, count }) }),
+  extractMemes: (text) =>
+    request('/library/memes/extract', { method: 'POST', body: JSON.stringify({ text }) }),
 }

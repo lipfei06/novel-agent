@@ -19,6 +19,8 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
   const [agentic, setAgentic] = useState(false) // 智能研究模式：写手自主查询状态/伏笔
   const [pipelinePending, setPipelinePending] = useState(null) // 流水线中本卷的章节级待确认项
   const [error, setError] = useState(null)
+  const [memeOptions, setMemeOptions] = useState([]) // 梗库候选（供"必用梗"勾选）
+  const [mustMemes, setMustMemes] = useState([]) // 作者指定的本章必用梗
   const set = (k, v) => setForm({ ...form, [k]: v })
 
   const load = () => {
@@ -37,6 +39,10 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
       } else {
         setPipelinePending(null)
       }
+    }).catch(() => {})
+    // 梗库清单（"必用梗"勾选用；失败静默——梗库为空只是不显示勾选区）
+    api.libraryList('meme').then((d) => {
+      setMemeOptions((d.entries || []).filter((e) => e.risk !== 'avoid'))
     }).catch(() => {})
   }
 
@@ -59,6 +65,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
         auto_plan: true,
         // 聊天里触发的写作指令（如"加点梗让情节反转搞笑"）与快捷指令一起作为写作指令交给写手
         notes: [useForm ? form.notes : quickNote, chatNote].filter(Boolean).join('\n').trim(),
+        must_use_memes: mustMemes,
         chat_context: chatContext,
         agentic,
       })
@@ -248,7 +255,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
           {/* 高级选项（可选）：想手动指定时再展开 */}
           <details className="card p-5">
             <summary className="text-sm font-medium cursor-pointer select-none">
-              高级选项（可选）：手动指定标题 / 目标 / 冲突 / 钩子 / 写作指令
+              高级选项（可选）：手动指定标题 / 目标 / 冲突 / 钩子 / 写作指令 / 必用梗
             </summary>
             <div className="mt-4">
               <label className="block text-xs text-muted mb-1">章节标题（可选）</label>
@@ -261,6 +268,36 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
               <input className="input mb-2" value={form.hook} onChange={(e) => set('hook', e.target.value)} placeholder="如：门被敲响时，她看到了那张照片" />
               <label className="block text-xs text-muted mb-1">自定义写作指令（可选，灵活指导 AI 怎么写这章）</label>
               <textarea className="input mb-3" rows={2} value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="如：多用环境渲染营造压抑感；对话要克制；结尾留白" />
+              {memeOptions.length > 0 && (
+                <div className="mb-1">
+                  <label className="block text-xs text-muted mb-1">
+                    本章必用梗（勾选后写手必须使用；无合适梗可不勾。梗库维护在「写作基础库 → 梗库」）
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {memeOptions.map((m) => {
+                      const on = mustMemes.includes(m.name)
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          title={m.content}
+                          onClick={() => setMustMemes(on ? mustMemes.filter((n) => n !== m.name) : [...mustMemes, m.name])}
+                          className={`rounded-full px-3 py-1 text-xs border transition ${
+                            on
+                              ? 'bg-primary text-white border-primary'
+                              : 'text-muted border-border hover:bg-black/5 dark:hover:bg-white/10'
+                          }`}
+                        >
+                          {m.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {mustMemes.length > 0 && (
+                    <p className="text-xs text-muted mt-1.5">已指定 {mustMemes.length} 个必用梗：{mustMemes.join('、')}</p>
+                  )}
+                </div>
+              )}
               <div className="flex justify-end">
                 <button className="btn-primary text-sm" disabled={generating} onClick={submit}>
                   {generating ? '生成中…' : '按以上信息生成'}
