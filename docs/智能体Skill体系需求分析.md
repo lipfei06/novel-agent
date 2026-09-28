@@ -1,7 +1,8 @@
 # 智能体 Skill 体系需求分析
 
-> 版本 v1.0 ｜ 状态：待评审 ｜ 改造对象：全部生成/审查类智能体的知识注入方式
+> 版本 v1.1 ｜ 状态：范围已收窄（评审意见：仅设定五阶段）｜ 改造对象：立项/世界观/人物/总纲/分卷规划五个设定阶段智能体的知识注入方式
 > 关联：对话式创作智能体需求分析（章节助手 agent 化）、规划智能体 ReAct 改造（ask_author 模式）、成本优化需求分析（token 预算）
+> v1.1 变更：写作侧（packet/write）与审查/抽取侧（consistency/editorial/understanding）skill 移出本期，降级为"后续可选"；其设计大纲保留在 §4 附录备查。范围收窄理由：设定阶段每项目只跑一次（token 成本可忽略）、是单发结构化生成（质量最吃提示词）、且是 ask_author 价值最高的位置；写作侧每章都跑、有回归风险，收益/风险比不如设定侧。
 
 ---
 
@@ -56,16 +57,13 @@
 
 ```
 skills/
-  concept.md        # 选题策划 skill（stage0）
-  world.md          # 世界观构建 skill（stage1）
-  character.md      # 人物设计 skill（stage2）
-  outline.md        # 总纲架构 skill（stage3）
-  volume.md         # 分卷规划 skill（stage3b）
-  packet.md         # 章节规划 skill（stage4b）
-  write.md          # 写手 skill（stage5）
-  consistency.md    # 一致性审查 skill（stage6 check）
-  editorial.md      # 总编审读 skill（stage6 editorial）
-  understanding.md  # 记忆抽取 skill（stage7）
+  concept.md        # 选题策划 skill（stage0）        ┐
+  world.md          # 世界观构建 skill（stage1）      │
+  character.md      # 人物设计 skill（stage2）        ├ 本期五阶段
+  outline.md        # 总纲架构 skill（stage3）        │
+  volume.md         # 分卷规划 skill（stage3b）       ┘
+  # 以下为后续可选（设计大纲见 §4 附录），loader 天然支持，加文件即生效：
+  # packet.md / write.md / consistency.md / editorial.md / understanding.md
 ```
 
 每个文件 = frontmatter（YAML）+ 正文（markdown 手艺指导）：
@@ -131,9 +129,9 @@ SkillLoader（启动时只解析全部 frontmatter，常驻内存 ≈ 10×100 to
 
 ---
 
-## 4. 每个 Agent 的 Skill 清单与设计
+## 4. 本期 Skill 清单与设计（设定五阶段）
 
-> 正文大纲给出该 skill 必须覆盖的知识点；实施时每条展开为要点+正反例。标 ★ 的是从已实测经验沉淀（有本项目跑书证据）。
+> 正文大纲给出该 skill 必须覆盖的知识点；实施时每条展开为要点+正反例。标 ★ 的是从已实测经验沉淀（有本项目跑书证据）。写作/审查/抽取侧大纲见 §4 附录。
 
 ### 4.1 concept.md — 选题策划（stage0）
 
@@ -176,7 +174,11 @@ SkillLoader（启动时只解析全部 frontmatter，常驻内存 ≈ 10×100 to
 - 章数契约重申：chapter_count 由配置硬绑定，规划只填剧情
 - **ask_author**：卷结构形态（连环案单元型 / 一卷一大事连续型）
 
-### 4.6 packet.md — 章节规划（stage4b）
+### 4.附录（本期不实施）写作/审查/抽取侧 skill 设计备查
+
+> 以下大纲在范围收窄前完成设计，留作后续扩展参考；实施时按当时跑书经验更新。
+
+### A.1 packet.md — 章节规划（stage4b）
 
 - **场景目标唯一论**：一场一目标，写不出目标的场景删掉或合并
 - 节拍情绪曲线：一章 3~5 拍，张弛交替；连续两拍同强度 = 节奏事故
@@ -186,7 +188,7 @@ SkillLoader（启动时只解析全部 frontmatter，常驻内存 ≈ 10×100 to
 - **梗的精准投放** ★：优先长在人物性格里的梗 > 情境梗 > 网络热梗；每章 1~2 个封顶，投放在情绪转折点当"透气阀"，绝不放进高潮场景（ch22 丢梗 / ch23 落梗的对照实验结论）
 - **ask_author**：复用 clarify_with_author 的方向分叉判定（本 skill 不新增声明，已有机制）
 
-### 4.7 write.md — 写手（stage5）
+### A.2 write.md — 写手（stage5）
 
 - **展示 vs讲述操作法**：情绪用动作/生理反应/环境折射展示；信息用讲述；比例参照档案 show_vs_tell
 - **开场钩子三板斧**：in medias res（动作中开场）/ 反常细节 / 对白切入；首段禁超 150 字设定说明
@@ -195,20 +197,20 @@ SkillLoader（启动时只解析全部 frontmatter，常驻内存 ≈ 10×100 to
 - **结尾钩子模板库**：信息钩（新线索）/ 危机钩（险境降临）/ 情感钩（关系突变）/ 悬念钩（反常沉默），按本章类型选一
 - 字数纪律：目标字数 ±25% 由 tune_length 兜底，写手按 ±10% 控制（代码约束保留，skill 只写意识）
 
-### 4.8 consistency.md — 一致性审查（stage6 check）
+### A.3 consistency.md — 一致性审查（stage6 check）
 
 - 冲突分级：硬冲突（事实矛盾：道具/时间线/人物状态，必须修）> 软矛盾（性格漂移，建议修）> 风格漂移（提示即可）
 - **误报抑制**：时间线模糊表述（"过了几天"）不算冲突；角色未登场不算漏洞——只报"与已确立事实矛盾"的
 - 修复指令写法：必须引用原文位置 + 给出可执行的改法，禁止"建议加强一致性"式空话
 
-### 4.9 editorial.md — 总编审读（stage6 editorial）
+### A.4 editorial.md — 总编审读（stage6 editorial）
 
 - 节奏诊断：连续 N 章无钩子升级 = 节奏疲软；连续两章同类型高潮 = 重复
 - 伏笔回收率审计：对照伏笔账本，回收率 < 60% 且临近完结时警示
 - 人物弧光完整度：主要角色在结尾必须能看到 start→end 的状态变化
 - 全局视角纪律：总编可见全书（含结局），审查"是否兑现立项承诺"，与规划侧的防剧透相区分
 
-### 4.10 understanding.md — 记忆抽取（stage7）
+### A.5 understanding.md — 记忆抽取（stage7）
 
 - 事件粒度标准：一章 2~5 条事件；"可被后文引用的事实"才入账本（内心活动不入）
 - 道具登记触发：满足任一才登记——跨章复用 / 承载秘密 / 被多人争夺；一次性消耗品不登记 ★（真假千金"怀表未登记"教训：关键道具漏登记导致后文查证空转）
@@ -217,13 +219,15 @@ SkillLoader（启动时只解析全部 frontmatter，常驻内存 ≈ 10×100 to
 
 ---
 
-## 5. 实施计划
+## 5. 实施计划（收窄后）
 
 | 阶段 | 内容 | 工作量 |
 |---|---|---|
-| P1 骨架 | `skills/` 目录 + 10 个 skill 文件（正文按 §4 大纲展开）+ SkillLoader + build_messages 注入 + packet 防剧透迁移 + 单测（加载/注入/缺文件降级） | ~1.5 天 |
+| P1 骨架 | `skills/` 目录 + 设定侧 5 个 skill 文件（正文按 §4 大纲展开）+ SkillLoader + build_messages 注入 + 单测（加载/注入/缺文件降级） | ~1 天 |
 | P2 问作者 | ask_author 判定器（cheap 档，含 mock 空返回与降级）+ interrupt 接线 + 前端通用问题卡（复用 stage4r 设计）+ concept/character 两阶段试点 | ~1 天 |
-| P3 补全评估 | 审查/抽取侧 3 个 skill 上线；跑一章对照（同章开/关 skill 各生成一次）评估质量差异；真实验证 token 增量符合预期 | ~1 天 |
+| P3 评估 | 跑一个新项目设定阶段全程，验证 ask_author 触发与续跑；对比旧立项书质量；确认 token 增量可忽略 | ~0.5 天 |
+
+写作/审查侧 skill 不在本期：loader 保留通用性，后续加文件即扩展（无需改代码）。
 
 每阶段独立可交付、可回滚（skill 注入失败 = 空串，生成照常）。
 
@@ -231,7 +235,7 @@ SkillLoader（启动时只解析全部 frontmatter，常驻内存 ≈ 10×100 to
 
 - 单测：SkillLoader 加载/缺文件/格式错误降级；build_messages 注入位置与优先级；ask_author 判定 mock 返回空
 - 管线测试：mock 模式全流程跑通（skill 注入不破坏既有 163 项测试）
-- 真实验收：① 新项目设定阶段触发至少一次 ask_author 问题卡并正常续跑；② 同章开/关 skill 对照生成，人工盲评；③ 成本流水确认单章 token 增量 < 2%
+- 真实验收：① 新项目设定阶段触发至少一次 ask_author 问题卡并正常续跑；② 设定产物人工对比旧版；③ 设定阶段成本流水确认 token 增量符合预期（每阶段一次性 +300~600，无单章 recurring 成本）
 
 ## 7. 依赖与风险
 
