@@ -105,6 +105,47 @@ def pick_for_chapter(
     return [e for e in _rank(store, index, "tool", query, top_k) if isinstance(e, NovelToolEntry)]
 
 
+def memes_for_chapter(
+    spec: str,
+    top_k: int = 4,
+    store: LibraryStore | None = None,
+    index: LibraryIndex | None = None,
+) -> list:
+    """按章节情境检索梗候选（写手只从候选里选用，不生造热梗）。"""
+    from .memes import MemeEntry
+
+    store = store or default_store()
+    query = str(spec or "").strip()
+    if not query:
+        return []
+    return [e for e in _rank(store, index, "meme", query, top_k) if isinstance(e, MemeEntry)]
+
+
+def meme_candidates_text(spec: str, root: str | Path = ".", top_k: int = 4) -> str:
+    """检索梗候选并渲染为写手注入块；无命中返回空串。"""
+    try:
+        store, index = store_and_index(root, "meme")
+        hits = memes_for_chapter(spec, top_k=top_k, store=store, index=index)
+    except Exception:
+        return ""
+    usable = [e for e in hits if e.risk != "avoid"]
+    if not usable:
+        return ""
+    lines = [
+        "可用梗候选（来自梗库检索，供调剂情绪用）：最多用 1-2 个，投放在情绪转折点，"
+        "高潮场景不放梗；没有合适候选就完全不使用，不要生造网络热梗；"
+        "标注 caution 的梗注意平台尺度，可化用其结构但不直接引用原句。"
+    ]
+    for i, e in enumerate(usable, 1):
+        line = f"{i}. [{e.name}] {e.kind}：{e.content}"
+        if e.usage:
+            line += f" —— 用法：{e.usage}"
+        if e.risk == "caution":
+            line += "（caution：注意平台尺度）"
+        lines.append(line)
+    return "<可用梗候选>\n" + "\n".join(lines) + "\n</可用梗候选>"
+
+
 # ---- 带自动建索引的便捷取数（供规划/写作链路直接使用） --------------------
 
 def store_and_index(root: str | Path, kind: Kind) -> tuple[LibraryStore, LibraryIndex]:

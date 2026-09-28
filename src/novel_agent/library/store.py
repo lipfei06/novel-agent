@@ -13,18 +13,20 @@ import json
 from pathlib import Path
 from typing import Literal
 
+from .memes import MemeEntry
 from .personality import PersonalityEntry
 from .techniques import TechniqueEntry
 from .tools import NovelToolEntry
 from novel_agent.types.character_template import CharacterTemplate
 
-Kind = Literal["personality", "tool", "character_template", "technique"]
+Kind = Literal["personality", "tool", "character_template", "technique", "meme"]
 
-_MODELS: dict[Kind, type[PersonalityEntry | NovelToolEntry | CharacterTemplate | TechniqueEntry]] = {
+_MODELS: dict[Kind, type] = {
     "personality": PersonalityEntry,
     "tool": NovelToolEntry,
     "character_template": CharacterTemplate,
     "technique": TechniqueEntry,
+    "meme": MemeEntry,
 }
 
 
@@ -62,7 +64,7 @@ class LibraryStore:
             json.dump(entries, fh, ensure_ascii=False, indent=2)
 
     # ---- CRUD -----------------------------------------------------
-    def add(self, kind: Kind, entry: PersonalityEntry | NovelToolEntry) -> None:
+    def add(self, kind: Kind, entry) -> None:
         """新增条目。目标层同 id 已存在则抛 ValueError。
 
         目标层 = overlay_dir（若设置）否则共享层。与共享层 id 相同是允许的，
@@ -75,7 +77,7 @@ class LibraryStore:
         entries.append(entry.model_dump())
         self._write(target, entries)
 
-    def update(self, kind: Kind, entry_id: str, fields: dict) -> PersonalityEntry | NovelToolEntry:
+    def update(self, kind: Kind, entry_id: str, fields: dict):
         """更新条目字段（id 不可改），version 自增。不存在则抛 KeyError。
 
         设置了 overlay_dir 时始终写入覆盖层：条目已在覆盖层则就地更新，
@@ -130,7 +132,7 @@ class LibraryStore:
                 return
         raise KeyError(entry_id)
 
-    def get(self, kind: Kind, entry_id: str) -> PersonalityEntry | NovelToolEntry | None:
+    def get(self, kind: Kind, entry_id: str):
         """查询条目：overlay 优先，其次 shared。"""
         for path in (self._overlay_path(kind), self._shared_path(kind)):
             if path is None:
@@ -140,7 +142,7 @@ class LibraryStore:
                     return _MODELS[kind](**raw)
         return None
 
-    def list(self, kind: Kind, category: str | None = None) -> list[PersonalityEntry | NovelToolEntry]:
+    def list(self, kind: Kind, category: str | None = None) -> list:
         """列出条目（shared + overlay 合并，overlay 同 id 覆盖），可按 category 过滤，按 id 排序。"""
         merged: dict[str, dict] = {}
         for path in (self._shared_path(kind), self._overlay_path(kind)):

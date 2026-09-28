@@ -332,6 +332,13 @@ def _stage5(cfg: Config):
         discussion = _chapter_discussion(state, vol, ch, cfg)
         if discussion:
             memory_context += f"\n\n<作者与AI讨论的设计>\n{discussion}\n</作者与AI讨论的设计>"
+        # 梗库候选：写手只从检索命中的候选里选用（梗有强时效性，模型自带的会过时）
+        if state.get("project_root"):
+            from novel_agent.library.searcher import meme_candidates_text
+
+            meme_block = meme_candidates_text(f"{packet.title} {packet.goal}", root=state["project_root"])
+            if meme_block:
+                memory_context += f"\n\n{meme_block}"
         from novel_agent.library.searcher import tools_for_chapter
 
         chapter_tools = tools_for_chapter(

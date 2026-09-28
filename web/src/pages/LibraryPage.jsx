@@ -6,6 +6,7 @@ const FIELDS = {
   tool: ['name', 'category', 'description', 'usage_guidelines', 'examples', 'chapter_placement', 'common_mistakes'],
   character_template: ['name', 'role', 'description', 'motivation', 'flaw', 'behavior', 'dialogue_style', 'tags', 'applicable_genres'],
   technique: ['name', 'category', 'mode', 'apply_stage', 'description', 'guidance', 'checklist', 'tags'],
+  meme: ['name', 'category', 'kind', 'description', 'content', 'usage', 'emotion', 'risk', 'as_of', 'tags'],
 }
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   ['tool', '小说工具库'],
   ['character_template', '人物模板库'],
   ['technique', '写作手法库'],
+  ['meme', '梗库'],
 ]
 
 const LIST_FIELDS = new Set(['tags', 'behavior_patterns', 'strengths', 'weaknesses', 'examples', 'common_mistakes', 'applicable_genres', 'checklist'])
@@ -27,6 +29,12 @@ const FIELD_META = {
   tags: { label: '标签（逗号分隔）', list: true },
   mode: { label: '类型', select: [['knowledge', '知识型'], ['mechanism', '机制型']] },
   apply_stage: { label: '生效阶段', select: [['all', '全部环节'], ['planning', '规划'], ['writing', '写作'], ['review', '检查']] },
+  kind: { label: '梗类型', select: [['句式梗', '句式梗'], ['名场面梗', '名场面梗'], ['谐音梗', '谐音梗'], ['情绪梗', '情绪梗'], ['行话梗', '行话梗']] },
+  content: { label: '梗本体（示例句）', textarea: true },
+  usage: { label: '用法（什么剧情/情绪下用）', textarea: true },
+  emotion: { label: '情绪色彩（喜/丧/讽/燃…）' },
+  risk: { label: '风险等级', select: [['safe', 'safe（化用安全）'], ['caution', 'caution（明梗注意限流）'], ['avoid', 'avoid（直接引用，勿用）']] },
+  as_of: { label: '时效锚点（YYYY-MM）' },
   behavior_patterns: { label: '行为模式（逗号分隔）', list: true },
   dialogue_style: { label: '对话风格' },
   strengths: { label: '优点（逗号分隔）', list: true },
@@ -47,6 +55,7 @@ export default function LibraryPage() {
   const [kind, setKind] = useState('personality')
   const [entries, setEntries] = useState([])
   const [showAdd, setShowAdd] = useState(false)
+  const [showPopulate, setShowPopulate] = useState(false)
   const [error, setError] = useState(null)
 
   const load = () =>
@@ -69,9 +78,16 @@ export default function LibraryPage() {
           <h2 className="text-2xl font-semibold">写作基础库</h2>
           <p className="text-sm text-muted mt-1">性格参考与小说创作工具，跨项目共享</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowAdd(true)}>
-          新增条目
-        </button>
+        <div className="flex gap-2">
+          {kind === 'meme' && (
+            <button className="btn-ghost" onClick={() => setShowPopulate(true)}>
+              ✨ AI 填充
+            </button>
+          )}
+          <button className="btn-primary" onClick={() => setShowAdd(true)}>
+            新增条目
+          </button>
+        </div>
       </div>
 
       <div className="flex gap-2 mt-4 mb-6">
@@ -112,7 +128,17 @@ export default function LibraryPage() {
                   </button>
                 </div>
               </div>
-              <p className="text-sm text-muted mt-2 line-clamp-2">{e.description}</p>
+              <p className="text-sm text-muted mt-2 line-clamp-2">{e.description || e.content}</p>
+              {kind === 'meme' && (
+                <p className="text-xs text-muted mt-1.5 flex flex-wrap gap-2">
+                  <span>{e.kind}</span>
+                  <span>·</span>
+                  <span>{e.emotion}</span>
+                  <span>·</span>
+                  <span className={e.risk === 'caution' ? 'text-amber-600' : e.risk === 'avoid' ? 'text-red-600' : ''}>{e.risk}</span>
+                  {e.as_of && <><span>·</span><span>{e.as_of}</span></>}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -129,6 +155,64 @@ export default function LibraryPage() {
           onError={setError}
         />
       )}
+
+      {showPopulate && (
+        <PopulateDialog
+          onClose={() => setShowPopulate(false)}
+          onDone={(msg) => {
+            setShowPopulate(false)
+            setError(msg || null)
+            load()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function PopulateDialog({ onClose, onDone }) {
+  const [topic, setTopic] = useState('职场')
+  const [count, setCount] = useState(10)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState(null)
+
+  const submit = async () => {
+    setBusy(true)
+    setErr(null)
+    try {
+      const r = await api.populateMemes(topic, count)
+      onDone(`✨ AI 填充完成：新增 ${r.added} 条「${topic}」梗（重复的已自动跳过）`)
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="card w-[420px] p-6" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold mb-2">AI 填充梗库</h3>
+        <p className="text-xs text-muted mb-4">
+          AI 按题材方向批量整理网络热梗/流行句式入库（自动跳过与库内重名的条目）。热梗有时效性，
+          条目带入库时间（as_of），是否仍流行由你判断，可随时删除。
+        </p>
+        <label className="block text-xs text-muted mb-1">
+          题材方向
+          <input className="input mt-1 mb-3" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="如：职场 / 情感 / 校园 / 玄幻" />
+        </label>
+        <label className="block text-xs text-muted mb-1">
+          数量（1-30）
+          <input className="input mt-1 mb-3" type="number" min="1" max="30" value={count} onChange={(e) => setCount(e.target.value)} />
+        </label>
+        {err && <div className="rounded border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-xs mb-3">{err}</div>}
+        <div className="flex justify-end gap-2">
+          <button className="btn-ghost text-sm" onClick={onClose}>取消</button>
+          <button className="btn-primary text-sm" disabled={busy || !topic.trim()} onClick={submit}>
+            {busy ? '生成中…' : '开始填充'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -168,7 +252,7 @@ function AddEntryDialog({ kind, onClose, onAdded, onError }) {
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
       <div className="card w-[480px] p-6 max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-base font-semibold mb-4">
-          新增 {{ personality: '性格', tool: '工具', character_template: '人物模板', technique: '写作手法' }[kind] ?? ''} 条目
+          新增 {{ personality: '性格', tool: '工具', character_template: '人物模板', technique: '写作手法', meme: '梗' }[kind] ?? ''} 条目
         </h3>
         {FIELDS[kind].map((f) => {
           const meta = FIELD_META[f] ?? { label: f }

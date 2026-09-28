@@ -9,6 +9,7 @@ pytest 兼容：全部为纯 test_* 函数（不使用 pytest fixture），既�
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -236,3 +237,74 @@ def test_presets_are_valid():
     assert all(e.id and e.name for e in PRESETS["tool"])
     ids = [e.id for e in PRESETS["personality"]]
     assert len(ids) == len(set(ids))
+
+
+# ---- 梗库 ----
+
+def test_meme_seed_and_search():
+    os.environ.setdefault("NOVEL_ENGINE_MOCK", "1")
+    from novel_agent.library import MEME_PRESETS, MemeEntry, memes_for_chapter
+
+    assert MEME_PRESETS and all(e.risk in ("safe", "caution", "avoid") for e in MEME_PRESETS)
+    root = Path(tempfile.mkdtemp())
+    from novel_agent.library import LibraryStore
+    store = LibraryStore(root / "output" / "libraries")
+    from novel_agent.library import PRESETS as P
+    store.seed(P)
+    hits = memes_for_chapter("职场裁员被抛弃自嘲", top_k=3, store=store)
+    assert hits and all(isinstance(e, MemeEntry) for e in hits)
+    # 检索命中的不应含 avoid 条目过滤问题（候选块再过滤一次）
+    from novel_agent.library import meme_candidates_text
+    block = meme_candidates_text("职场裁员被抛弃自嘲", root=root)
+    assert block.startswith("<可用梗候选>")
+    assert "不要生造网络热梗" in block
+
+
+def test_populate_memes_mock_dedupes():
+    os.environ.setdefault("NOVEL_ENGINE_MOCK", "1")
+    from novel_agent.config import load_config
+    from novel_agent.library import LibraryStore, populate_memes
+
+    root = Path(tempfile.mkdtemp())
+    (root / "config.yaml").write_text(
+        "genre: short_story\nllm:\n  cheap: { model: c, api_key_env: K }\n"
+        "token_budget: { state_update: 20000 }\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(root / "config.yaml")
+    store = LibraryStore(root / "output" / "libraries")
+    added = populate_memes(root, "职场", 5, cfg, store=store)
+    assert len(added) == 5
+    before = len(store.list("meme"))
+    added2 = populate_memes(root, "职场", 5, cfg, store=store)
+    # mock 名称含序号会重复 → 全部被去重，不新增
+    assert len(store.list("meme")) == before if added2 else True
+
+
+def test_populate_memes_dedupes_by_name():
+    """重名条目（含预置）不得重复入库。"""
+    os.environ.setdefault("NOVEL_ENGINE_MOCK", "1")
+    from novel_agent.config import load_config
+    from novel_agent.library import LibraryStore, MemeEntry, PRESETS, populate_memes
+
+    root = Path(tempfile.mkdtemp())
+    (root / "config.yaml").write_text(
+        "genre: short_story\nllm:\n  cheap: { model: c, api_key_env: K }\n"
+        "token_budget: { state_update: 20000 }\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(root / "config.yaml")
+    store = LibraryStore(root / "output" / "libraries")
+    store.seed(PRESETS)
+    before = len(store.list("meme"))
+    # 构造一条与预置重名的"LLM 输出"
+    from unittest.mock import patch
+    import novel_agent.library.memes as mm
+
+    dup = MemeEntry(id="x", name=mm.MEME_PRESETS[0].name, content="dup")
+    with patch.object(mm, "is_mock", lambda: False), patch.object(
+        mm, "invoke_structured", lambda llm, msgs, schema=None, **kw: mm.MemeList(items=[dup])
+    ):
+        added = populate_memes(root, "职场", 3, cfg, store=store)
+    assert added == []  # 重名全部被去重
+    assert len(store.list("meme")) == before

@@ -47,7 +47,7 @@ class LibraryIndex:
     def rebuild(self, store: LibraryStore) -> None:
         """从 store 全量重建索引。"""
         self._data = {}
-        for kind in ("personality", "tool", "character_template", "technique"):
+        for kind in ("personality", "tool", "character_template", "technique", "meme"):
             for entry in store.list(kind):  # type: ignore[arg-type]
                 self._index_entry(kind, entry)
         self._save()
@@ -100,6 +100,8 @@ class LibraryIndex:
             " ".join(str(x) for x in d.get("behavior_patterns", []))
             or " ".join(str(x) for x in d.get("usage_guidelines", [])),
             " ".join(str(x) for x in d.get("weaknesses", [])),
+            d.get("content", ""),
+            d.get("usage", ""),
         ]
         self._data.setdefault(kind, {})[str(d.get("id"))] = {
             "name": str(d.get("name", "")),

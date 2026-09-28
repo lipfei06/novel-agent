@@ -490,6 +490,12 @@ def _build_writing_context(values: dict, packet, cfg: Config, root: Path, projec
         current_vol=vol, current_chapter=ch,
         annotate=True,
     )
+    # 梗库候选：写手只从检索命中的候选里选用（梗有强时效性，模型自带的会过时）
+    from novel_agent.library.searcher import meme_candidates_text
+
+    meme_block = meme_candidates_text(f"{packet.title} {packet.goal}", root=root)
+    if meme_block:
+        memory_context += f"\n\n{meme_block}"
     return memory_context, rag_context
 
 
@@ -1540,11 +1546,11 @@ def final_files(project_id: str, request: Request) -> dict:
     return {"files": files}
 
 
-_LIBRARY_KINDS = ("personality", "tool", "character_template", "technique")
+_LIBRARY_KINDS = ("personality", "tool", "character_template", "technique", "meme")
 
 
 def _library_model(kind: str):
-    from novel_agent.library import NovelToolEntry, PersonalityEntry, TechniqueEntry
+    from novel_agent.library import MemeEntry, NovelToolEntry, PersonalityEntry, TechniqueEntry
     from novel_agent.types.character_template import CharacterTemplate
 
     models = {
@@ -1552,6 +1558,7 @@ def _library_model(kind: str):
         "tool": NovelToolEntry,
         "character_template": CharacterTemplate,
         "technique": TechniqueEntry,
+        "meme": MemeEntry,
     }
     return models[kind]
 
@@ -1561,7 +1568,7 @@ def library_list(kind: str, request: Request) -> dict:
     from novel_agent.library import LibraryStore, PRESETS
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique")
+        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
     base = Path(request.app.state.root) / "output" / "libraries"
     store = LibraryStore(base)
     store.seed(PRESETS)
@@ -1569,12 +1576,39 @@ def library_list(kind: str, request: Request) -> dict:
     return {"kind": kind, "entries": entries}
 
 
+@router.post("/library/memes/populate")
+def library_memes_populate(body: dict, request: Request) -> dict:
+    """AI 填充梗库：按题材方向批量生成梗条目并去重入库，减少人工录入。"""
+    from novel_agent.config import load_config
+    from novel_agent.library import LibraryStore, PRESETS, populate_memes
+
+    topic = str(body.get("topic") or "通用").strip()[:60]
+    try:
+        count = int(body.get("count") or 10)
+    except Exception:
+        count = 10
+    base = Path(request.app.state.root) / "output" / "libraries"
+    store = LibraryStore(base)
+    store.seed(PRESETS)
+    cfg = load_config(Path(request.app.state.root) / "config.yaml")
+    try:
+        added = populate_memes(request.app.state.root, topic, count, cfg, store=store)
+    except Exception as exc:
+        import traceback
+
+        from novel_agent.logutil import get_logger
+
+        get_logger().warning("[梗库] AI 填充失败: %s\n%s", topic, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"AI 填充失败：{exc}") from exc
+    return {"ok": True, "added": len(added), "entries": [e.model_dump() for e in added]}
+
+
 @router.post("/library/{kind}")
 def library_add(kind: str, body: dict, request: Request) -> dict:
     from novel_agent.library import LibraryStore, PRESETS
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique")
+        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
     try:
         entry = _library_model(kind)(**body)
     except Exception as exc:
@@ -1594,7 +1628,7 @@ def library_update(kind: str, entry_id: str, body: dict, request: Request) -> di
     from novel_agent.library import LibraryStore
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique")
+        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
     base = Path(request.app.state.root) / "output" / "libraries"
     try:
         updated = LibraryStore(base).update(kind, entry_id, body)
@@ -1608,7 +1642,7 @@ def library_delete(kind: str, entry_id: str, request: Request) -> dict:
     from novel_agent.library import LibraryStore
 
     if kind not in _LIBRARY_KINDS:
-        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique")
+        raise HTTPException(status_code=400, detail="kind 仅支持 personality / tool / character_template / technique / meme")
     base = Path(request.app.state.root) / "output" / "libraries"
     try:
         LibraryStore(base).delete(kind, entry_id)

@@ -1,9 +1,11 @@
-"""预置写作基础库条目：性格库 + 小说工具库 + 人物模板库 + 写作手法库。
+"""预置写作基础库条目：性格库 + 小说工具库 + 人物模板库 + 写作手法库 + 梗库。
 
-作为 seed 写入共享库（仅当对应 id 不存在）。开发者/用户可继续用 CLI 增补。
+作为 seed 写入共享库（仅当对应 id 不存在）。开发者/用户可继续用 CLI 增补；
+梗库另支持 AI 填充（library.memes.populate_memes）。
 """
 from __future__ import annotations
 
+from .memes import MEME_PRESETS
 from .personality import PersonalityEntry
 from .techniques import TechniqueEntry
 from .tools import NovelToolEntry
@@ -549,4 +551,5 @@ PRESETS: dict[str, list[object]] = {
     "tool": TOOL_PRESETS,
     "character_template": CHARACTER_TEMPLATE_PRESETS,
     "technique": TECHNIQUE_PRESETS,
+    "meme": MEME_PRESETS,
 }

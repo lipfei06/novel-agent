@@ -101,4 +101,6 @@ export const api = {
   libraryUpdate: (kind, id, fields) =>
     request(`/library/${kind}/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   libraryDelete: (kind, id) => request(`/library/${kind}/${id}`, { method: 'DELETE' }),
+  populateMemes: (topic, count) =>
+    request('/library/memes/populate', { method: 'POST', body: JSON.stringify({ topic, count }) }),
 }
