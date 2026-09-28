@@ -514,7 +514,7 @@ def update_chapter(project_id: str, vol: int, ch: int, body: ChapterUpdateIn, re
         meta = pm.get_meta(project_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    _, runtime, values, _ = _project_ctx(request, project_id, meta.genre)
+    _, runtime, values, cfg = _project_ctx(request, project_id, meta.genre)
 
     key = f"{vol}_{ch}"
     chapters = dict(values.get("chapters") or {})
@@ -527,6 +527,50 @@ def update_chapter(project_id: str, vol: int, ch: int, body: ChapterUpdateIn, re
     chapter = chapter.model_copy(update={"volume": vol, "chapter": ch})
     chapters[key] = chapter.model_dump()
     runtime.graph.update_state(runtime.thread, {"chapters": chapters})
+
+    # 编辑同步：本章的三层检索记忆与事件账本按新正文重放（旧索引先按章移除），
+    # 否则后续章节的摘要/RAG/正典注入仍是旧版——改得越多记忆漂移越厉害。
+    # character_state 与道具卡不重放：状态是跨章累积推导、道具事实只增，
+    # 编辑后重放会重复或回退；大幅改剧情应走重写流程而非编辑。
+    try:
+        from novel_agent.agents.understanding import merge_canon_updates, understand_chapter
+        from novel_agent.llm import get_embedder
+        from novel_agent.llm.cost import set_chapter, set_project
+        from novel_agent.logutil import get_logger
+        from novel_agent.memory import LongTermMemory, MidTermMemory, update_chapter_memory
+        from novel_agent.rag import TemporalGraph
+
+        root = request.app.state.root
+        set_project(project_id, root)
+        set_chapter(key)  # 重放的理解调用计入该章成本
+        log = get_logger()
+        mid_p, vec_p, graph_p = _mem_paths(root, project_id)
+        try:
+            understanding = understand_chapter(
+                chapter.model_dump(), values.get("characters") or [],
+                (values.get("character_state") or {}).get("entries", []), cfg,
+            )
+        except Exception as exc:
+            log.warning("[编辑同步] 章节理解失败，退回独立抽取: %s", exc)
+            understanding = None
+        long_term = LongTermMemory(vec_p, embed_fn=get_embedder(cfg))
+        graph = TemporalGraph(graph_p)
+        long_term.remove_chapter(vol, ch)
+        graph.remove_chapter(vol, ch)
+        update_chapter_memory(
+            chapter.model_dump(), cfg, MidTermMemory(mid_p), long_term, graph,
+            values.get("characters"), understanding=understanding,
+        )
+        if understanding is not None:
+            # 事件账本按 vol_ch 整章替换（幂等）；道具卡只增，跳过防重复
+            el, _pr = merge_canon_updates(
+                values.get("event_ledger"), values.get("prop_registry"), vol, ch, understanding,
+            )
+            runtime.graph.update_state(runtime.thread, {"event_ledger": el})
+    except Exception as exc:
+        from novel_agent.logutil import get_logger
+
+        get_logger().warning("[编辑同步] 记忆重放失败（章节已保存，可稍后重建记忆）: %s", exc)
     return {"ok": True, "chapter": chapter.model_dump()}
 
 
@@ -1355,9 +1399,13 @@ def _finalize_chapter(runtime, values, cfg, root: Path, project_id: str, chapter
     try:
         from novel_agent.memory import update_chapter_memory
 
+        long_term = LongTermMemory(vec_p, embed_fn=get_embedder(cfg))
+        graph = TemporalGraph(graph_p)
+        # 重写-再接受场景：先移除本章旧索引再重放，避免向量切片/关系边重复累积
+        long_term.remove_chapter(int(chapter.volume or 1), int(chapter.chapter or 1))
+        graph.remove_chapter(int(chapter.volume or 1), int(chapter.chapter or 1))
         update_chapter_memory(
-            chapter.model_dump(), cfg,
-            MidTermMemory(mid_p), LongTermMemory(vec_p, embed_fn=get_embedder(cfg)), TemporalGraph(graph_p),
+            chapter.model_dump(), cfg, MidTermMemory(mid_p), long_term, graph,
             values.get("characters"),
             understanding=understanding,
         )

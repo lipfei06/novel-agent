@@ -1,6 +1,7 @@
 """M6 · F16 FastAPI API 测试（mock 模式，TestClient）。"""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -277,6 +278,28 @@ def test_update_chapter():
         assert products2["chapters"]["1_1"]["scenes"][0]["text"] == "被人工修改的正文"
         # 修改不存在的章节 → 404
         assert c.put("/api/projects/apiU/chapters/1/99", json={"chapter": ch}).status_code == 404
+
+        # 编辑同步：长期向量按新正文重放（旧切片移除、新切片入库，且不因重复编辑翻倍）
+        root = Path(c.app.state.root)
+        lt_path = root / "data" / "projects" / "apiU" / "vector_stores" / "long_term.json"
+        assert lt_path.exists(), "长期向量库应已落盘"
+        lt = json.loads(lt_path.read_text(encoding="utf-8"))
+        assert any("被人工修改的正文" in chunk for chunk in lt["chunks"])
+        keys = [m["key"] for m in lt["meta"] if m and m.get("key") == "1_1"]
+        assert len(keys) == len([s for s in ch["scenes"] if s.get("text")])
+        # 再编辑一次 → 旧文本消失、仍无重复（remove-then-replay 幂等）
+        ch["scenes"][0]["text"] = "第二版人工正文"
+        assert c.put("/api/projects/apiU/chapters/1/1", json={"chapter": ch}).status_code == 200
+        lt = json.loads(lt_path.read_text(encoding="utf-8"))
+        assert any("第二版人工正文" in chunk for chunk in lt["chunks"])
+        assert not any("被人工修改的正文" in chunk for chunk in lt["chunks"])
+        keys = [m["key"] for m in lt["meta"] if m and m.get("key") == "1_1"]
+        assert len(keys) == len([s for s in ch["scenes"] if s.get("text")])
+        # 中期摘要也已重放（键存在即可；mock 摘要为确定性文本）
+        mid = json.loads((root / "data" / "projects" / "apiU" / "memory" / "mid_term.json")
+                         .read_text(encoding="utf-8"))
+        summaries = mid.get("summaries", mid)
+        assert "1_1" in summaries
 
 
 def test_list_projects_real_stats():
