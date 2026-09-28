@@ -1456,9 +1456,14 @@ def _finalize_chapter(runtime, values, cfg, root: Path, project_id: str, chapter
         get_logger().warning("[finalize] 路人升级失败: %s", exc)
 
 
+class AcceptChapterIn(BaseModel):
+    chapter: dict | None = None  # 可选：作者在预览中修改后的章节字段，覆盖待接受章节
+
+
 @router.post("/projects/{project_id}/chapters/{vol}/{ch}/accept")
-def accept_chapter(project_id: str, vol: int, ch: int, request: Request) -> dict:
-    """接受生成的章节：写入 chapters + 更新记忆。"""
+def accept_chapter(project_id: str, vol: int, ch: int, request: Request,
+                   body: AcceptChapterIn | None = None) -> dict:
+    """接受生成的章节：写入 chapters + 更新记忆。body.chapter 可选，作者预览直改后覆盖待接受章节。"""
     from novel_agent.memory import update_chapter_memory
     from novel_agent.types import Chapter
 
@@ -1472,7 +1477,14 @@ def accept_chapter(project_id: str, vol: int, ch: int, request: Request) -> dict
     pending = values.get("pending_chapter")
     if pending is None:
         raise HTTPException(status_code=400, detail="没有待接受的章节，请先提交章节表单")
-    chapter = Chapter(**pending)
+    pending = dict(pending)
+    if body and body.chapter:
+        pending.update(body.chapter)
+    try:
+        chapter = Chapter(**pending)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"章节数据校验失败：{exc}") from exc
+    chapter = chapter.model_copy(update={"volume": vol, "chapter": ch})
     key = f"{vol}_{ch}"
     chapters = dict(values.get("chapters") or {})
     chapters[key] = chapter.model_dump()

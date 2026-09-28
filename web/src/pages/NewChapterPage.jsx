@@ -12,6 +12,8 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(null) // {message, pct}
   const [pending, setPending] = useState(null) // 预览章节
+  const [draftScenes, setDraftScenes] = useState(null) // 编辑中的场景副本（作者预览直改正文）
+  const [editing, setEditing] = useState(false) // 预览直改模式开关
   const [packet, setPacket] = useState(null) // AI 的章节规划
   const [context, setContext] = useState('') // 写作用的完整提示上下文
   const [showPrompt, setShowPrompt] = useState(false)
@@ -71,6 +73,8 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
       })
       const result = await runTaskWithProgress(task_id, (p) => setProgress(p))
       setPending(result.pending)
+      setDraftScenes((result.pending.scenes ?? []).map((s) => ({ ...s }))) // 重新生成 → 编辑重置为 AI 原稿
+      setEditing(false)
       setPacket(result.packet)
       setContext(result.context ?? '')
       setShowPrompt(false)
@@ -84,17 +88,30 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
 
   const submit = () => generate(true)
 
+  const setScene = (i, patch) =>
+    setDraftScenes((prev) => prev.map((s, j) => (j === i ? { ...s, ...patch } : s)))
+  const dirty = !!pending && !!draftScenes &&
+    JSON.stringify(draftScenes) !== JSON.stringify(pending.scenes ?? [])
+
   const accept = async () => {
     setGenerating(true)
     setError(null)
     try {
-      await api.acceptChapter(projectId, vol, pending.chapter)
+      // 作者改过正文 → 把编辑后的完整章节交给后端，记忆按新正文重放
+      const body = dirty ? { ...pending, scenes: draftScenes } : null
+      await api.acceptChapter(projectId, vol, pending.chapter, body)
       onBack() // 接受后返回卷列表
     } catch (e) {
       setError(e.message)
     } finally {
       setGenerating(false)
     }
+  }
+
+  const discard = () => {
+    setPending(null)
+    setDraftScenes(null)
+    setEditing(false)
   }
 
   return (
@@ -181,7 +198,23 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-base font-medium">生成预览 · 第{pending.chapter}章 {pending.title}</h3>
-            <span className="text-xs text-muted">{pending.scenes?.length ?? 0} 个场景</span>
+            <div className="flex items-center gap-2">
+              {dirty && !editing && (
+                <span className="text-xs text-amber-600 dark:text-amber-400">已修改，将按新正文保存并重放记忆</span>
+              )}
+              <span className="text-xs text-muted">{pending.scenes?.length ?? 0} 个场景</span>
+              <button
+                className="btn-ghost text-xs"
+                disabled={generating}
+                onClick={() => {
+                  if (!editing && !draftScenes) setDraftScenes((pending.scenes ?? []).map((s) => ({ ...s })))
+                  setEditing(!editing)
+                }}
+                title="接受前直接修改正文，AI 的记忆（摘要/向量/时间线）会按修改后的版本记录"
+              >
+                {editing ? '✓ 完成修改' : '✎ 修改正文'}
+              </button>
+            </div>
           </div>
 
           {/* AI 的章节规划（写作用提示） */}
@@ -222,17 +255,39 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
             </div>
           )}
 
-          {/* 生成正文 */}
-          {(pending.scenes ?? []).map((s, i) => (
+          {/* 生成正文：直改模式下场景可编辑 */}
+          {(draftScenes ?? pending.scenes ?? []).map((s, i) => (
             <div key={s.id ?? i} className="card p-4">
-              <p className="text-xs font-medium text-primary mb-2">{s.heading}</p>
-              <p className="text-sm leading-7 whitespace-pre-wrap">{s.text}</p>
+              {editing ? (
+                <>
+                  <input
+                    className="input text-xs mb-2"
+                    value={s.heading ?? ''}
+                    placeholder="场景标题"
+                    onChange={(e) => setScene(i, { heading: e.target.value })}
+                  />
+                  <textarea
+                    className="input text-sm leading-7"
+                    rows={Math.min(24, Math.max(4, Math.ceil((s.text ?? '').length / 50) + 2))}
+                    value={s.text ?? ''}
+                    onChange={(e) => setScene(i, { text: e.target.value })}
+                  />
+                  <p className="text-xs text-muted mt-1.5">
+                    {(s.text ?? '').length} 字 · 接受后摘要/向量/时间线会按修改后的正文重放
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-medium text-primary mb-2">{s.heading}</p>
+                  <p className="text-sm leading-7 whitespace-pre-wrap">{s.text}</p>
+                </>
+              )}
             </div>
           ))}
           <div className="flex justify-end gap-2">
-            <button className="btn-ghost" disabled={generating} onClick={() => setPending(null)}>放弃</button>
+            <button className="btn-ghost" disabled={generating} onClick={discard}>放弃</button>
             <button className="btn-primary" disabled={generating} onClick={accept}>
-              {generating ? '保存中…' : '接受并保存'}
+              {generating ? '保存中…' : dirty ? '接受并保存（含修改）' : '接受并保存'}
             </button>
           </div>
         </div>

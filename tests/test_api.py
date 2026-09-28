@@ -262,6 +262,44 @@ def test_create_accept_chapter():
         assert "1_2" not in products["chapters"]
 
 
+def test_accept_chapter_with_edits():
+    """作者预览直改：accept 带可选 body.chapter 覆盖待接受章节，记忆按编辑后正文重放。"""
+    with _client() as c:
+        c.post("/api/projects", json={"title": "直改", "genre": "short_story", "project_id": "apiE"})
+        _run_setup(c, "apiE")
+        r = c.post("/api/projects/apiE/volumes/1/chapters", json={"goal": "作者直改"})
+        pending = r.json()["pending"]
+        original = pending["scenes"][0]["text"]
+        pending["scenes"][0]["text"] = "作者手改的正文"
+        pending["scenes"][0]["heading"] = "手改场景"
+        # 接受时带编辑后的完整章节
+        r = c.post("/api/projects/apiE/chapters/1/1/accept", json={"chapter": pending})
+        assert r.status_code == 200
+        saved = r.json()["chapter"]
+        assert saved["scenes"][0]["text"] == "作者手改的正文"
+        assert saved["volume"] == 1 and saved["chapter"] == 1  # 路径参数兜底
+        products = c.get("/api/projects/apiE/products").json()
+        assert products["chapters"]["1_1"]["scenes"][0]["text"] == "作者手改的正文"
+
+        # 编辑同步：长期向量按编辑后正文重放，AI 原稿不留残留
+        root = Path(c.app.state.root)
+        lt_path = root / "data" / "projects" / "apiE" / "vector_stores" / "long_term.json"
+        assert lt_path.exists(), "长期向量库应已落盘"
+        lt = json.loads(lt_path.read_text(encoding="utf-8"))
+        # meta 与 chunks 平行，只看本章切片
+        own = [chunk for chunk, m in zip(lt["chunks"], lt["meta"]) if m and m.get("key") == "1_1"]
+        assert own, "1_1 的向量切片应存在"
+        assert any("作者手改的正文" in chunk for chunk in own)
+        assert not any(original in chunk for chunk in own)
+        # 中期摘要键存在
+        mid = json.loads((root / "data" / "projects" / "apiE" / "memory" / "mid_term.json")
+                         .read_text(encoding="utf-8"))
+        assert "1_1" in mid.get("summaries", mid)
+
+        # 不带 body 的旧调用方式不受影响（无待接受章节 → 400）
+        assert c.post("/api/projects/apiE/chapters/1/1/accept").status_code == 400
+
+
 def test_update_chapter():
     with _client() as c:
         c.post("/api/projects", json={"title": "改章", "genre": "short_story", "project_id": "apiU"})

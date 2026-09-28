@@ -56,8 +56,11 @@ export const api = {
     request(`/projects/${id}/volumes/${vol}`, { method: 'PUT', body: JSON.stringify(fields) }),
   createChapter: (id, vol, form) =>
     request(`/projects/${id}/volumes/${vol}/chapters`, { method: 'POST', body: JSON.stringify(form) }),
-  acceptChapter: (id, vol, ch) =>
-    request(`/projects/${id}/chapters/${vol}/${ch}/accept`, { method: 'POST' }),
+  acceptChapter: (id, vol, ch, body) =>
+    request(`/projects/${id}/chapters/${vol}/${ch}/accept`, {
+      method: 'POST',
+      ...(body ? { body: JSON.stringify({ chapter: body }) } : {}),
+    }),
   discardChapter: (id, vol, ch) =>
     request(`/projects/${id}/chapters/${vol}/${ch}`, { method: 'DELETE' }),
   deleteSavedChapter: (id, vol, ch) =>
