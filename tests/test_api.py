@@ -300,6 +300,69 @@ def test_accept_chapter_with_edits():
         assert c.post("/api/projects/apiE/chapters/1/1/accept").status_code == 400
 
 
+def test_chapter_versions_and_restore():
+    """版本快照：编辑/删除自动留底，可恢复（含已删除章），恢复前当前稿再留底。"""
+    with _client() as c:
+        c.post("/api/projects", json={"title": "版本", "genre": "short_story", "project_id": "apiV"})
+        _run_setup(c, "apiV")
+        r = c.post("/api/projects/apiV/volumes/1/chapters", json={"goal": "版本测试"})
+        original = r.json()["pending"]["scenes"][0]["text"]
+        assert c.post("/api/projects/apiV/chapters/1/1/accept").status_code == 200
+
+        # 编辑覆盖 → 旧稿留底
+        ch = c.get("/api/projects/apiV/products").json()["chapters"]["1_1"]
+        ch["scenes"][0]["text"] = "第二版正文"
+        assert c.put("/api/projects/apiV/chapters/1/1", json={"chapter": ch}).status_code == 200
+        vs = c.get("/api/projects/apiV/chapters/1/1/versions").json()["versions"]
+        assert len(vs) == 1 and vs[0]["reason"] == "编辑覆盖"
+        assert vs[0]["words"] > 0 and vs[0]["title"]
+
+        # 恢复旧版 → 当前稿留底为「恢复前备份」，正文回滚，记忆按恢复稿重放
+        vid = vs[0]["id"]
+        full = c.get(f"/api/projects/apiV/chapters/1/1/versions/{vid}").json()["version"]
+        assert full["chapter"]["scenes"][0]["text"] == original
+        assert c.post(f"/api/projects/apiV/chapters/1/1/versions/{vid}/restore").status_code == 200
+        products = c.get("/api/projects/apiV/products").json()
+        assert products["chapters"]["1_1"]["scenes"][0]["text"] == original
+        vs2 = c.get("/api/projects/apiV/chapters/1/1/versions").json()["versions"]
+        assert len(vs2) == 2 and vs2[0]["reason"] == "恢复前备份"
+        # 正典账本字段已暴露
+        assert isinstance(products.get("event_ledger"), dict)
+        assert isinstance(products.get("prop_registry"), dict)
+
+        # 删除留底 + 卷级备份组标记已删除 + 删除章可恢复
+        assert c.delete("/api/projects/apiV/volumes/1/chapters/1").status_code == 200
+        groups = c.get("/api/projects/apiV/volumes/1/versions").json()["groups"]
+        g = next(x for x in groups if x["key"] == "1_1")
+        assert g["deleted"] is True and g["count"] >= 3
+        assert c.post(f"/api/projects/apiV/chapters/1/1/versions/{vid}/restore").status_code == 200
+        products = c.get("/api/projects/apiV/products").json()
+        assert "1_1" in products["chapters"]
+        # 非法版本 id → 404
+        assert c.post("/api/projects/apiV/chapters/1/1/versions/../etc/restore").status_code in (404, 400)
+
+
+def test_project_cost_endpoint():
+    with _client() as c:
+        c.post("/api/projects", json={"title": "成本", "genre": "short_story", "project_id": "apiM"})
+        _run_setup(c, "apiM")
+        c.post("/api/projects/apiM/volumes/1/chapters", json={"goal": "x"})
+        c.post("/api/projects/apiM/chapters/1/1/accept")
+        # mock 模式无真实 usage；直接注入一次带章节标记的记录验证流水与端点联动
+        from novel_agent.llm import cost as cost_mod
+
+        cost_mod.set_project("apiM", Path(c.app.state.root))
+        cost_mod.set_chapter("1_1")
+        cost_mod.record_usage(
+            {"prompt_tokens": 1_000_000, "completion_tokens": 500_000, "total_tokens": 1_500_000},
+            model="m",
+        )
+        got = c.get("/api/projects/apiM/cost").json()
+        assert got["calls"] == 1 and got["chapters"]["1_1"]["total_tokens"] == 1_500_000
+        # 默认单价 (0.14, 0.28)：1M 输入 + 0.5M 输出 = 0.28 USD
+        assert abs(got["est_cost_usd"] - 0.28) < 1e-6
+
+
 def test_update_chapter():
     with _client() as c:
         c.post("/api/projects", json={"title": "改章", "genre": "short_story", "project_id": "apiU"})

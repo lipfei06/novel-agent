@@ -70,6 +70,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ chapter }),
     }),
+  projectCost: (id) => request(`/projects/${id}/cost`),
+  chapterVersions: (id, vol, ch) =>
+    request(`/projects/${id}/chapters/${vol}/${ch}/versions`),
+  chapterVersion: (id, vol, ch, vid) =>
+    request(`/projects/${id}/chapters/${vol}/${ch}/versions/${vid}`),
+  restoreChapterVersion: (id, vol, ch, vid) =>
+    request(`/projects/${id}/chapters/${vol}/${ch}/versions/${vid}/restore`, { method: 'POST' }),
+  volumeVersions: (id, vol) => request(`/projects/${id}/volumes/${vol}/versions`),
   setProjectTechniques: (id, ids) =>
     request(`/projects/${id}/techniques`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   generateBlueprint: (id) => request(`/projects/${id}/blueprint/generate`, { method: 'POST' }),

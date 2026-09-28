@@ -131,9 +131,9 @@ export default function WorkspacePage({ projectId, onOpenChapter, onNewChapter }
         <div className="flex items-center gap-4">
           {cost && (
             <div className="text-right">
-              <p className="text-sm font-medium">{cost.total_tokens.toLocaleString()} tokens</p>
+              <p className="text-sm font-medium">≈ ${cost.est_cost_usd}</p>
               <p className="text-xs text-muted">
-                ≈ ${cost.est_cost_usd} · {cost.calls} 次调用
+                {cost.calls} 次调用 · {cost.total_tokens.toLocaleString()} tokens
               </p>
             </div>
           )}

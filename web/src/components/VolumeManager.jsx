@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import ChatPanel from './ChatPanel.jsx'
+import VersionHistoryDialog from './VersionHistoryDialog.jsx'
 
 // 卷/章管理：卷可新增/编辑；点「新建章节」跳转独立页面；点章节跳转查看/修改页
 export default function VolumeManager({ projectId, products, onProductsChange, onOpenChapter, onNewChapter }) {
@@ -11,12 +12,15 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
   const [error, setError] = useState(null)
   const [editingVol, setEditingVol] = useState(null)
   const [chatVol, setChatVol] = useState(null) // 正在对话的卷号
+  const [backupVol, setBackupVol] = useState(null) // 展示备份对话框的卷号
+  const [cost, setCost] = useState(null) // 按章成本流水（可选展示）
 
   const loadVolumes = () =>
     api.listVolumes(projectId).then((d) => setVolumes(d.volumes)).catch((e) => setError(e.message))
 
   useEffect(() => {
     loadVolumes()
+    api.projectCost(projectId).then(setCost).catch(() => {})
   }, [projectId])
 
   const run = async (fn) => {
@@ -128,11 +132,27 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
                 </button>
                 <button
                   className="btn-ghost text-xs"
+                  onClick={() => setBackupVol(backupVol === v.volume ? null : v.volume)}
+                  title="编辑/重写/删除的自动留底，含已删除章节，可恢复"
+                >
+                  {backupVol === v.volume ? '收起备份' : '🕘 备份'}
+                </button>
+                <button
+                  className="btn-ghost text-xs"
                   onClick={() => setSelected(selected === v.volume ? null : v.volume)}
                 >
                   {selected === v.volume ? '收起章节' : '查看章节'}
                 </button>
               </div>
+              {backupVol === v.volume && (
+                <VersionHistoryDialog
+                  projectId={projectId}
+                  vol={v.volume}
+                  ch={null}
+                  onClose={() => setBackupVol(null)}
+                  onRestored={onProductsChange}
+                />
+              )}
               {chatVol === v.volume && (
                 <div className="mt-3 pt-3 border-t border-border">
                   <ChatPanel
@@ -160,11 +180,7 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
               )}
               {selected === v.volume && (
                 <div className="mt-3 pt-3 border-t border-border">
-                  <ChapterList
-                    vol={v.volume}
-                    chapters={products?.chapters ?? {}}
-                    onOpen={(ch) => onOpenChapter?.({ projectId, vol: v.volume, ch })}
-                  />
+                  <ChapterList vol={v.volume} chapters={products?.chapters ?? {}} cost={cost} onOpen={(ch) => onOpenChapter?.({ projectId, vol: v.volume, ch })} />
                 </div>
               )}
             </div>
@@ -175,7 +191,12 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
   )
 }
 
-function ChapterList({ vol, chapters, onOpen }) {
+const chapterWords = (ch) =>
+  (ch?.scenes ?? []).reduce((n, s) => n + (s.text ?? '').length, 0)
+
+// 按章成本：后端流水只有 token 数，用全局 $/token 均价折算展示（≈ 估算）
+function ChapterList({ vol, chapters, cost, onOpen }) {
+  const chapterCost = cost && cost.total_tokens > 0 ? cost.est_cost_usd / cost.total_tokens : 0
   const items = Object.entries(chapters)
     .filter(([k]) => k.startsWith(`${vol}_`))
     .sort(([a], [b]) => {
@@ -191,17 +212,28 @@ function ChapterList({ vol, chapters, onOpen }) {
         <p className="text-sm text-muted">（尚无章节，点击「新建章节」开始）</p>
       ) : (
         <ul className="text-sm space-y-1">
-          {items.map(([key, ch]) => (
-            <li key={key}>
-              <button
-                className="w-full flex items-center justify-between text-left text-muted hover:text-foreground rounded px-2 py-1 hover:bg-black/[0.03] dark:hover:bg-white/[0.06] transition"
-                onClick={() => onOpen?.(Number(key.split('_')[1]))}
-              >
-                <span className="truncate">第{ch.chapter}章 · {ch.title}</span>
-                <span className="text-xs text-primary">{ch.scenes?.length ?? 0} 场景</span>
-              </button>
-            </li>
-          ))}
+          {items.map(([key, ch]) => {
+            const cb = cost?.chapters?.[key]
+            return (
+              <li key={key}>
+                <button
+                  className="w-full flex items-center justify-between text-left text-muted hover:text-foreground rounded px-2 py-1 hover:bg-black/[0.03] dark:hover:bg-white/[0.06] transition"
+                  onClick={() => onOpen?.(Number(key.split('_')[1]))}
+                >
+                  <span className="truncate">第{ch.chapter}章 · {ch.title}</span>
+                  <span className="text-xs whitespace-nowrap">
+                    {chapterWords(ch) >= 10000
+                      ? `${(chapterWords(ch) / 10000).toFixed(1)} 万字`
+                      : `${chapterWords(ch)} 字`}
+                    <span className="text-primary ml-2">{ch.scenes?.length ?? 0} 场景</span>
+                    {cb && chapterCost > 0 && (
+                      <span className="ml-2">≈ ${(cb.total_tokens * chapterCost).toFixed(2)}</span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

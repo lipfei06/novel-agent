@@ -506,7 +506,7 @@ class ChapterUpdateIn(BaseModel):
 
 @router.put("/projects/{project_id}/chapters/{vol}/{ch}")
 def update_chapter(project_id: str, vol: int, ch: int, body: ChapterUpdateIn, request: Request) -> dict:
-    """修改已保存的章节内容（表单编辑后保存）。"""
+    """修改已保存的章节内容（表单编辑后保存）。旧稿自动留底，可在历史版本中恢复。"""
     from novel_agent.types import Chapter
 
     pm = _pm(request)
@@ -525,13 +525,25 @@ def update_chapter(project_id: str, vol: int, ch: int, body: ChapterUpdateIn, re
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"章节数据校验失败：{exc}") from exc
     chapter = chapter.model_copy(update={"volume": vol, "chapter": ch})
+    old = chapters.get(key)
+    if old:
+        from novel_agent.storage.versions import snapshot_chapter
+
+        snapshot_chapter(request.app.state.root, project_id, old, "编辑覆盖")
     chapters[key] = chapter.model_dump()
     runtime.graph.update_state(runtime.thread, {"chapters": chapters})
+    _replay_chapter_memory(request, runtime, values, cfg, project_id, chapter, key)
+    return {"ok": True, "chapter": chapter.model_dump()}
 
-    # 编辑同步：本章的三层检索记忆与事件账本按新正文重放（旧索引先按章移除），
-    # 否则后续章节的摘要/RAG/正典注入仍是旧版——改得越多记忆漂移越厉害。
-    # character_state 与道具卡不重放：状态是跨章累积推导、道具事实只增，
-    # 编辑后重放会重复或回退；大幅改剧情应走重写流程而非编辑。
+
+def _replay_chapter_memory(request: Request, runtime, values, cfg, project_id: str,
+                           chapter, key: str) -> None:
+    """编辑/恢复覆盖后按新正文重放三层检索记忆与事件账本（旧索引先按章移除）。
+
+    否则后续章节的摘要/RAG/正典注入仍是旧版——改得越多记忆漂移越厉害。
+    character_state 与道具卡不重放：状态是跨章累积推导、道具事实只增，
+    编辑后重放会重复或回退；大幅改剧情应走重写流程而非编辑。
+    """
     try:
         from novel_agent.agents.understanding import merge_canon_updates, understand_chapter
         from novel_agent.llm import get_embedder
@@ -541,6 +553,7 @@ def update_chapter(project_id: str, vol: int, ch: int, body: ChapterUpdateIn, re
         from novel_agent.rag import TemporalGraph
 
         root = request.app.state.root
+        vol, ch = int(chapter.volume or 1), int(chapter.chapter or 1)
         set_project(project_id, root)
         set_chapter(key)  # 重放的理解调用计入该章成本
         log = get_logger()
@@ -571,7 +584,6 @@ def update_chapter(project_id: str, vol: int, ch: int, body: ChapterUpdateIn, re
         from novel_agent.logutil import get_logger
 
         get_logger().warning("[编辑同步] 记忆重放失败（章节已保存，可稍后重建记忆）: %s", exc)
-    return {"ok": True, "chapter": chapter.model_dump()}
 
 
 @router.delete("/projects/{project_id}/volumes/{vol}/chapters/{ch}")
@@ -597,6 +609,11 @@ def delete_saved_chapter(project_id: str, vol: int, ch: int, request: Request) -
     chapters = dict(values.get("chapters") or {})
     if key not in chapters:
         raise HTTPException(status_code=404, detail=f"章节 {key} 不存在")
+
+    # 删除前自动留底：误删可在卷卡「🕘 备份」中找回
+    from novel_agent.storage.versions import snapshot_chapter
+
+    snapshot_chapter(request.app.state.root, project_id, chapters[key], "删除备份")
 
     def _k2tuple(k: str) -> tuple[int, int]:
         try:
@@ -1487,6 +1504,11 @@ def accept_chapter(project_id: str, vol: int, ch: int, request: Request,
     chapter = chapter.model_copy(update={"volume": vol, "chapter": ch})
     key = f"{vol}_{ch}"
     chapters = dict(values.get("chapters") or {})
+    # 重写-再接受：旧稿自动留底（首次接受无旧稿，跳过）
+    if key in chapters:
+        from novel_agent.storage.versions import snapshot_chapter
+
+        snapshot_chapter(request.app.state.root, project_id, chapters[key], "重写覆盖")
     chapters[key] = chapter.model_dump()
     runtime.graph.update_state(runtime.thread, {"chapters": chapters, "pending_chapter": None})
     # 写手智能体的记忆提案：状态 hints 进 _finalize_chapter，伏笔登记并入账本
@@ -1527,6 +1549,96 @@ def discard_chapter(project_id: str, vol: int, ch: int, request: Request) -> dic
     return {"ok": True}
 
 
+@router.get("/projects/{project_id}/cost")
+def project_cost(project_id: str, request: Request) -> dict:
+    """全局用量 + 按章成本流水（USD 估价按模型单价折算）。"""
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, _runtime, _values, cfg = _project_ctx(request, project_id, meta.genre)
+    from novel_agent.llm.cost import get_cost
+
+    return get_cost(Path(request.app.state.root), project_id, getattr(cfg, "cost", None))
+
+
+@router.get("/projects/{project_id}/chapters/{vol}/{ch}/versions")
+def list_chapter_versions(project_id: str, vol: int, ch: int, request: Request) -> dict:
+    """某章的历史版本列表（新→旧，元数据）。"""
+    pm = _pm(request)
+    try:
+        pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    from novel_agent.storage.versions import list_versions
+
+    return {"versions": list_versions(Path(request.app.state.root), project_id, vol, ch)}
+
+
+@router.get("/projects/{project_id}/chapters/{vol}/{ch}/versions/{vid}")
+def get_chapter_version(project_id: str, vol: int, ch: int, vid: str, request: Request) -> dict:
+    """读取一个历史版本的完整章节内容。"""
+    pm = _pm(request)
+    try:
+        pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    from novel_agent.storage.versions import load_version
+
+    version = load_version(Path(request.app.state.root), project_id, vol, ch, vid)
+    if not version:
+        raise HTTPException(status_code=404, detail=f"版本 {vid} 不存在")
+    return {"version": version}
+
+
+@router.post("/projects/{project_id}/chapters/{vol}/{ch}/versions/{vid}/restore")
+def restore_chapter_version(project_id: str, vol: int, ch: int, vid: str, request: Request) -> dict:
+    """恢复章节到历史版本：当前稿先自动留底，再写回并按恢复稿重放记忆。"""
+    from novel_agent.types import Chapter
+
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    from novel_agent.storage import versions as vstore
+
+    root = Path(request.app.state.root)
+    version = vstore.load_version(root, project_id, vol, ch, vid)
+    if not version or not version.get("chapter"):
+        raise HTTPException(status_code=404, detail=f"版本 {vid} 不存在")
+    _, runtime, values, cfg = _project_ctx(request, project_id, meta.genre)
+    try:
+        chapter = Chapter(**version["chapter"])
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"版本数据校验失败：{exc}") from exc
+    chapter = chapter.model_copy(update={"volume": vol, "chapter": ch})
+    key = f"{vol}_{ch}"
+    chapters = dict(values.get("chapters") or {})
+    if key in chapters:
+        vstore.snapshot_chapter(root, project_id, chapters[key], "恢复前备份")
+    chapters[key] = chapter.model_dump()
+    runtime.graph.update_state(runtime.thread, {"chapters": chapters})
+    _replay_chapter_memory(request, runtime, values, cfg, project_id, chapter, key)
+    return {"ok": True, "chapter": chapter.model_dump()}
+
+
+@router.get("/projects/{project_id}/volumes/{vol}/versions")
+def list_volume_versions(project_id: str, vol: int, request: Request) -> dict:
+    """卷内有备份的全部章节（含已删除章），供「备份」入口展示。"""
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, runtime, values, _ = _project_ctx(request, project_id, meta.genre)
+    from novel_agent.storage.versions import volume_groups
+
+    existing = set((values.get("chapters") or {}).keys())
+    return {"groups": volume_groups(Path(request.app.state.root), project_id, vol, existing)}
+
+
 @router.get("/projects/{project_id}/products")
 def project_products(project_id: str, request: Request) -> dict:
     """返回项目已产出的设定/人物/大纲/章节（从图状态读取）。"""
@@ -1546,6 +1658,8 @@ def project_products(project_id: str, request: Request) -> dict:
         "volume_plans": values.get("volume_plans"),
         "writer_packets": values.get("writer_packets"),
         "chapters": values.get("chapters"),
+        "event_ledger": values.get("event_ledger"),
+        "prop_registry": values.get("prop_registry"),
         "character_state": values.get("character_state"),
         "techniques": values.get("techniques"),
         "narrative_blueprint": values.get("narrative_blueprint"),

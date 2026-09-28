@@ -299,6 +299,8 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
             context={chatContext}
             title={`章节助手 · 讨论第${chapterNo}章怎么写`}
             target="chapter"
+            hidePropose
+            emptyHint="和 AI 聊这一章的想法：情节、对白、节奏都行。聊清楚后点右上「按讨论生成本章」，AI 会自己提炼要点交给写手。"
             placeholder="自由聊这一章的想法/情节/对白/节奏……想好后点右上「按讨论生成本章」，AI 会自己提炼要点交给写手"
             onWriteRequest={(t) => generate(false, t)}
           />

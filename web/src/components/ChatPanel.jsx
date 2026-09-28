@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import { api } from '../api/client.js'
 
 // 创作对话面板：多轮讨论 + 「提出方案」应用到表单
-export default function ChatPanel({ projectId, context, title, target, onApply, placeholder, hidePropose = false, onWriteRequest }) {
+export default function ChatPanel({ projectId, context, title, target, onApply, placeholder, hidePropose = false, onWriteRequest, emptyHint }) {
   // 写作意图：作者在聊天里说"直接写/开写/开始这一章/按你说的写"等，直接触发生成任务而不是聊天回复
   const WRITE_INTENT_RE =
     /(直接写|开写|写这[一章章]|写下一章|开始这[一章章]|开始写|接着写|继续写|可以写了|可以开写|生成[本这]?一?章|写正文|写吧|就这么写|按.{0,6}写)/
@@ -171,7 +171,7 @@ export default function ChatPanel({ projectId, context, title, target, onApply, 
       <div ref={boxRef} className="min-h-96 max-h-[560px] overflow-auto space-y-2 mb-3 pr-1 pb-2">
         {messages.length === 0 && (
           <div className="h-80 flex items-center justify-center text-xs text-muted">
-            和 AI 聊聊你的想法，满意后让它「提出方案」。
+            {emptyHint ?? (hidePropose ? '和 AI 聊聊你的想法。' : '和 AI 聊聊你的想法，满意后让它「提出方案」。')}
           </div>
         )}
         {messages.map((m, i) => (

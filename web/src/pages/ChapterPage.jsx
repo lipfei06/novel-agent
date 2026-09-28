@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client.js'
 import { runTaskWithProgress } from '../lib/taskStream.js'
 import ChatPanel from '../components/ChatPanel.jsx'
+import VersionHistoryDialog from '../components/VersionHistoryDialog.jsx'
 
 // 右栏上部的品牌装饰：羽毛笔 + 摊开的书 + 墨线（纯 SVG，跟随明暗主题）
 function AssistantBrand() {
@@ -69,6 +70,7 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
   const [regenerating, setRegenerating] = useState(false)
   const [regenProgress, setRegenProgress] = useState(null)
   const [preview, setPreview] = useState(null)
+  const [showVersions, setShowVersions] = useState(false)
 
   const load = () =>
     api
@@ -173,7 +175,7 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
     }
   }
   const deleteChapter = async () => {
-    if (!confirm(`确定删除第${ch}章《${chapter.title}》？正文与章节摘要会一并移除，且无法恢复。`)) return
+    if (!confirm(`确定删除第${ch}章《${chapter.title}》？删除前会自动留底，可在卷卡「🕘 备份」中找回。`)) return
     setSaving(true)
     setError(null)
     try {
@@ -217,10 +219,18 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
             下一章 →
           </button>
           <button
+            className="btn-ghost text-xs"
+            disabled={regenerating}
+            onClick={() => setShowVersions(true)}
+            title="编辑/重写/删除都会自动留底，可随时恢复"
+          >
+            🕘 历史
+          </button>
+          <button
             className="btn-ghost text-red-600 dark:text-red-400 text-xs"
             disabled={saving || regenerating}
             onClick={deleteChapter}
-            title="删除本章（仅允许删除最新一章）"
+            title="删除本章（仅允许删除最新一章）；删除前自动留底"
           >
             🗑 删除
           </button>
@@ -314,6 +324,17 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
           />
         </div>
       </div>
+
+      {/* 历史版本对话框 */}
+      {showVersions && (
+        <VersionHistoryDialog
+          projectId={projectId}
+          vol={vol}
+          ch={ch}
+          onClose={() => setShowVersions(false)}
+          onRestored={load}
+        />
+      )}
 
       {/* 重新生成 / 方案应用 预览 */}
       {preview && (

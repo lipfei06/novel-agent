@@ -3,8 +3,9 @@ import { api } from '../api/client.js'
 import RelationGraph from './RelationGraph.jsx'
 import ChatPanel from './ChatPanel.jsx'
 import TechniquePanel from './TechniquePanel.jsx'
+import CanonPanel from './CanonPanel.jsx'
 
-// 作品设定区：全局规划 / 选题 / 世界观 / 人物 / 总纲 / 手法 —— 只创建一次，之后点开表单即可修改
+// 作品设定区：全局规划 / 选题 / 世界观 / 人物 / 总纲 / 手法 / 伏笔与道具
 const TABS = [
   ['chief', '全局规划'],
   ['concept', '选题立项'],
@@ -12,6 +13,7 @@ const TABS = [
   ['characters', '人物'],
   ['outline', '总纲'],
   ['techniques', '手法'],
+  ['canon', '伏笔与道具'],
 ]
 
 export default function ProductsPanel({ projectId, autoCollapse = false }) {
@@ -134,6 +136,7 @@ export default function ProductsPanel({ projectId, autoCollapse = false }) {
                   onChanged={load}
                 />
               )}
+              {tab === 'canon' && <CanonPanel data={data} />}
             </>
           )}
         </>
