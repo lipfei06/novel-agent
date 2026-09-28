@@ -3,6 +3,7 @@ import { api } from '../api/client.js'
 import { runTaskWithProgress } from '../lib/taskStream.js'
 import ChatPanel from '../components/ChatPanel.jsx'
 import ConfirmView from '../components/ConfirmView.jsx'
+import QualityReportCard from '../components/QualityReportCard.jsx'
 
 // 新建章节独立页面：与 AI 讨论设计 → 按讨论生成（SSE 流式进度）→ 预览 → 接受/放弃
 export default function NewChapterPage({ projectId, vol, onBack }) {
@@ -12,6 +13,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
   const [generating, setGenerating] = useState(false)
   const [progress, setProgress] = useState(null) // {message, pct}
   const [pending, setPending] = useState(null) // 预览章节
+  const [quality, setQuality] = useState(null) // 机器质检报告（先审后览）
   const [draftScenes, setDraftScenes] = useState(null) // 编辑中的场景副本（作者预览直改正文）
   const [editing, setEditing] = useState(false) // 预览直改模式开关
   const [packet, setPacket] = useState(null) // AI 的章节规划
@@ -73,6 +75,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
       })
       const result = await runTaskWithProgress(task_id, (p) => setProgress(p))
       setPending(result.pending)
+      setQuality(result.quality ?? null)
       setDraftScenes((result.pending.scenes ?? []).map((s) => ({ ...s }))) // 重新生成 → 编辑重置为 AI 原稿
       setEditing(false)
       setPacket(result.packet)
@@ -110,6 +113,7 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
 
   const discard = () => {
     setPending(null)
+    setQuality(null)
     setDraftScenes(null)
     setEditing(false)
   }
@@ -216,6 +220,21 @@ export default function NewChapterPage({ projectId, vol, onBack }) {
               </button>
             </div>
           </div>
+
+          {/* 机器质检：先审后览，重复/缺节拍由作者裁决 */}
+          <QualityReportCard
+            projectId={projectId}
+            vol={vol}
+            ch={pending.chapter}
+            report={quality}
+            pending={pending}
+            onChangePending={(p, q) => {
+              setPending(p)
+              if (q !== undefined) setQuality(q)
+              setDraftScenes((p.scenes ?? []).map((s) => ({ ...s })))
+            }}
+            onEditScene={() => setEditing(true)}
+          />
 
           {/* AI 的章节规划（写作用提示） */}
           {packet && (

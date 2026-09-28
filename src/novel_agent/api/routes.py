@@ -793,13 +793,20 @@ def _regenerate_job(project_id: str, vol: int, ch: int, instruction: str, chat_c
         chapter = rewrite_chapter(
             existing, packet, cfg, memory_context=memory_context, rag_context=rag_context,
             techniques=values.get("techniques"), blueprint=values.get("narrative_blueprint"),
-            research_digest=research_digest,
+            research_digest=research_digest, style_samples=values.get("style_samples"),
         )
 
-        progress("保存预览…", 95)
-        runtime.graph.update_state(runtime.thread, {"pending_chapter": chapter.model_dump()})
+        # 质检门：机器审核先于人工预览
+        from novel_agent.agents.quality import check_chapter_quality
+
+        progress("质检中…", 95)
+        quality = check_chapter_quality(
+            chapter.model_dump(), packet.model_dump(), values.get("chapters") or {}, cfg,
+        )
+        runtime.graph.update_state(runtime.thread, {"pending_chapter": chapter.model_dump(),
+                                                    "pending_quality": quality})
         progress("完成", 100)
-        return {"ok": True, "pending": chapter.model_dump()}
+        return {"ok": True, "pending": chapter.model_dump(), "quality": quality}
 
     return job
 
@@ -1332,12 +1339,20 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
         chapter = generate_chapter(
             packet, cfg, memory_context=memory_context, rag_context=rag_context,
             techniques=techniques, blueprint=blueprint, tools=chapter_tools,
-            research_digest=research_digest,
+            research_digest=research_digest, style_samples=values.get("style_samples"),
         )
 
+        # 质检门：机器审核先于人工预览（查重/节拍兑现/文风），报告随预览交付
+        from novel_agent.agents.quality import check_chapter_quality
+
+        progress("质检中…", 90)
+        quality = check_chapter_quality(
+            chapter.model_dump(), packet.model_dump(), values.get("chapters") or {}, cfg,
+        )
         progress("保存预览…", 95)
         updates = {
             "pending_chapter": chapter.model_dump(),
+            "pending_quality": quality,
             # 任务书随章归档：作者可追溯每章是按什么目标/讨论要点/指令生成的
             "writer_packets": {**(values.get("writer_packets") or {}),
                                f"{vol}_{chapter_no}": packet.model_dump()},
@@ -1362,6 +1377,7 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
             "pending": chapter.model_dump(),
             "packet": packet.model_dump(),
             "context": memory_context,
+            "quality": quality,
         }
 
     return job
@@ -1639,6 +1655,79 @@ def list_volume_versions(project_id: str, vol: int, request: Request) -> dict:
     return {"groups": volume_groups(Path(request.app.state.root), project_id, vol, existing)}
 
 
+class PendingSceneRewriteIn(BaseModel):
+    scene_id: str
+    instruction: str = ""
+
+
+@router.post("/projects/{project_id}/chapters/{vol}/{ch}/pending-scene-rewrite")
+def pending_scene_rewrite(project_id: str, vol: int, ch: int, body: PendingSceneRewriteIn, request: Request) -> dict:
+    """对【待接受】章节的指定场景做 AI 定点重写（质检裁决的"✨ AI 重写"按钮）。
+
+    只重写该场景并更新 pending_chapter，重跑质检门后一并返回；章节仍未保存，
+    作者可继续编辑或接受。"""
+    from novel_agent.revision import edit_scene
+    from novel_agent.types import Chapter
+
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, runtime, values, cfg = _project_ctx(request, project_id, meta.genre)
+
+    pending = values.get("pending_chapter")
+    if pending is None:
+        raise HTTPException(status_code=400, detail="没有待接受的章节")
+    try:
+        chapter = Chapter(**pending)
+        merged, new_text = edit_scene(chapter, body.scene_id, body.instruction, cfg)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"场景 {body.scene_id} 不存在") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"改写失败：{exc}") from exc
+
+    from novel_agent.agents.quality import check_chapter_quality
+
+    packet = (values.get("writer_packets") or {}).get(f"{vol}_{ch}")
+    quality = check_chapter_quality(merged.model_dump(), packet, values.get("chapters") or {}, cfg)
+    runtime.graph.update_state(runtime.thread, {"pending_chapter": merged.model_dump(),
+                                                "pending_quality": quality})
+    return {"ok": True, "chapter": merged.model_dump(), "new_text": new_text, "quality": quality}
+
+
+class StyleSamplesIn(BaseModel):
+    samples: list[dict]  # [{id, name, text}]
+
+
+@router.put("/projects/{project_id}/style-samples")
+def update_style_samples(project_id: str, body: StyleSamplesIn, request: Request) -> dict:
+    """设置作者风格样本（≤3 段，每段 ≤800 字）：注入写手 prompt 作风格锚点。"""
+    from novel_agent.agents.write import MAX_STYLE_SAMPLES, MAX_STYLE_SAMPLE_CHARS
+
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, runtime, _values, _cfg = _project_ctx(request, project_id, meta.genre)
+
+    samples = []
+    for s in body.samples or []:
+        text = (s or {}).get("text", "").strip()
+        if not text:
+            continue
+        if len(text) > MAX_STYLE_SAMPLE_CHARS:
+            raise HTTPException(status_code=400,
+                                detail=f"样本「{s.get('name') or '未命名'}」超过 {MAX_STYLE_SAMPLE_CHARS} 字上限")
+        samples.append({"id": s.get("id") or f"st{len(samples) + 1}", "name": (s.get("name") or "").strip(),
+                        "text": text})
+    if len(samples) > MAX_STYLE_SAMPLES:
+        raise HTTPException(status_code=400, detail=f"最多 {MAX_STYLE_SAMPLES} 段样本")
+    runtime.graph.update_state(runtime.thread, {"style_samples": samples})
+    return {"ok": True, "samples": samples}
+
+
 @router.get("/projects/{project_id}/products")
 def project_products(project_id: str, request: Request) -> dict:
     """返回项目已产出的设定/人物/大纲/章节（从图状态读取）。"""
@@ -1660,6 +1749,8 @@ def project_products(project_id: str, request: Request) -> dict:
         "chapters": values.get("chapters"),
         "event_ledger": values.get("event_ledger"),
         "prop_registry": values.get("prop_registry"),
+        "style_samples": values.get("style_samples"),
+        "pending_quality": values.get("pending_quality"),
         "character_state": values.get("character_state"),
         "techniques": values.get("techniques"),
         "narrative_blueprint": values.get("narrative_blueprint"),

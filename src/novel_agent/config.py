@@ -62,6 +62,7 @@ class Config:
     writer: dict = field(default_factory=dict)
     model_overrides: dict = field(default_factory=dict)  # 任务级模型覆写：{任务名: 档位名}
     planner: dict = field(default_factory=dict)  # 规划研究循环配置（react_enabled/max_rounds）
+    quality: dict = field(default_factory=dict)  # 质检门：repetition_threshold / repetition_window
 
     def tier(self, name: str) -> ModelTier:
         if name not in self.tiers:

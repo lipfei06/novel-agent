@@ -78,6 +78,13 @@ export const api = {
   restoreChapterVersion: (id, vol, ch, vid) =>
     request(`/projects/${id}/chapters/${vol}/${ch}/versions/${vid}/restore`, { method: 'POST' }),
   volumeVersions: (id, vol) => request(`/projects/${id}/volumes/${vol}/versions`),
+  pendingSceneRewrite: (id, vol, ch, sceneId, instruction) =>
+    request(`/projects/${id}/chapters/${vol}/${ch}/pending-scene-rewrite`, {
+      method: 'POST',
+      body: JSON.stringify({ scene_id: sceneId, instruction }),
+    }),
+  updateStyleSamples: (id, samples) =>
+    request(`/projects/${id}/style-samples`, { method: 'PUT', body: JSON.stringify({ samples }) }),
   setProjectTechniques: (id, ids) =>
     request(`/projects/${id}/techniques`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   generateBlueprint: (id) => request(`/projects/${id}/blueprint/generate`, { method: 'POST' }),

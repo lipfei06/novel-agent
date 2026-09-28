@@ -19,6 +19,10 @@ llm:
 model_overrides:
   summary: local          # 章/卷摘要走本地 Ollama（省云端调用；删掉此行即回退 deepseek）
 
+quality:
+  repetition_threshold: 0.70        # 场景查重阈值（difflib 相似度，≥此值标记疑似重复；正常相邻场景约 0.1-0.3）
+  repetition_window: 3              # 跨章查重窗口：只与最近 N 章对比（与写手上下文对齐，更早章节已淡忘）
+
 memory:
   short_window: 4                   # 兼容保留：旧版全文章数（现由 full_window 接管）
   full_window: 1                    # 分级窗口：最近 N 章全文，更早章节降级为章/卷摘要（成本优化 OPT-A）

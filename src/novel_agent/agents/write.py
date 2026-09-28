@@ -13,6 +13,9 @@ SYSTEM_PROMPT = """你是一位网文写手。依据 writer_packet 生成单章�
 人物言行需符合其性格设定，章节结尾落实钩子。
 背景/路人角色（跑龙套）无需建立档案：直接用通用性格 + 轻度随机化表现即可，不必刻意设计。
 字数是硬性要求：必须写足目标字数，用具体的场景、对话、动作与心理描写展开，禁止概要式、提纲式写作。
+【防重复硬规则】每个场景对应一个独立节拍、独立事件：同一情节只写一遍，禁止对同一节拍输出两个版本或换措辞重演；
+同一段对话/出示证据/摊牌内容只能出现一次。若本章需再次到访已写过的地点办理同类事务，压缩为不超过 150 字的蒙太奇，
+只写与上次不同的变化。
 【字段要求】每个场景的完整正文必须写在 text 字段里（不得留空、不得只给提纲、不得把正文拆进其他字段）。"""
 
 SYSTEM_PROMPT_REWRITE = """你是一位资深网文写手，负责对【既有章节】进行重新创作。
@@ -22,8 +25,31 @@ SYSTEM_PROMPT_REWRITE = """你是一位资深网文写手，负责对【既有�
 - 若原章存在拖沓、平淡、冲突不足等问题，在新版中要修正
 - 严格沿用章节规划中的目标、冲突、钩子
 - 重新创作是"换一种更好的写法"，不是缩写：篇幅必须与原章相当，禁止概括式压缩
+- 【防重复硬规则】每个场景对应一个独立节拍：同一情节只写一遍，禁止对同一节拍输出两个版本或换措辞重演
 - 每个场景的完整正文必须写在 text 字段里（不得留空、不得把正文拆进其他字段）
 输出为场景块数组（每块带 id/heading/text）。"""
+
+MAX_STYLE_SAMPLES = 3
+MAX_STYLE_SAMPLE_CHARS = 800
+
+
+def _style_note(style_samples: list[dict] | None) -> str:
+    """作者风格样本 → 写手 prompt 的 few-shot 锚点（跨章稳定内容，前置利于缓存）。"""
+    parts = []
+    for i, s in enumerate(style_samples or []):
+        text = (s or {}).get("text", "").strip()
+        if not text:
+            continue
+        name = (s or {}).get("name") or f"样本{i + 1}"
+        parts.append(f"【{name}】\n{text[:MAX_STYLE_SAMPLE_CHARS]}")
+    if not parts:
+        return ""
+    return (
+        "\n<作者风格样本>\n模仿以下样本的叙事口吻、句式节奏与用词密度；"
+        "情节与人物必须服从本章规划，样本仅供风格参照。\n"
+        + "\n---\n".join(parts)
+        + "\n</作者风格样本>"
+    )
 
 
 def _length_directive(target: int) -> str:
@@ -39,6 +65,7 @@ def generate_chapter(
     blueprint: dict | None = None,
     tools: list[dict] | None = None,
     research_digest: str = "",
+    style_samples: list[dict] | None = None,
 ) -> Chapter:
     packet_data = packet.model_dump() if hasattr(packet, "model_dump") else dict(packet)
     if is_mock():
@@ -59,9 +86,10 @@ def generate_chapter(
         refs = [f"- {t.get('name')}（{t.get('category', '')}）：{t.get('usage_guidelines', '')}" for t in tools]
         tool_note = "\n<本章可运用的叙事技法>\n" + "\n".join(refs) + "\n</本章可运用的叙事技法>"
     research_note = f"\n{research_digest}" if research_digest else ""
-    # 缓存友好（OPT-D）：跨章最稳定的记忆块前置，每章变化的 packet 随后
+    style_note = _style_note(style_samples)
+    # 缓存友好（OPT-D）：跨章最稳定的内容（风格样本→记忆）前置，每章变化的 packet 随后
     user = (
-        f"{extra}\nwriter_packet：{json.dumps(packet_data, ensure_ascii=False)}\n{length}\n"
+        f"{style_note}{extra}\nwriter_packet：{json.dumps(packet_data, ensure_ascii=False)}\n{length}\n"
         f"本章标题必须为《{packet.title}》，不得另起标题。\n"
         f"{tech_note}{dark_note}{tool_note}{research_note}\n请写本章正文。"
     )
@@ -106,6 +134,7 @@ def rewrite_chapter(
     techniques: list[dict] | None = None,
     blueprint: dict | None = None,
     research_digest: str = "",
+    style_samples: list[dict] | None = None,
 ) -> Chapter:
     """重新创作既有章节：保持设定一致，但叙事/表达明显不同且更优。"""
     existing_data = existing.model_dump() if hasattr(existing, "model_dump") else dict(existing)
@@ -134,9 +163,10 @@ def rewrite_chapter(
     tech_note = stage_guidance(techniques, ("writing",))
     dark_note = dark_line_directive(blueprint)
     research_note = f"\n{research_digest}" if research_digest else ""
+    style_note = _style_note(style_samples)
     # 缓存友好（OPT-D）：记忆块前置，随后才是每章变化的规划与原文
     user = (
-        f"{extra}\n"
+        f"{style_note}{extra}\n"
         f"章节规划：{json.dumps(packet_data, ensure_ascii=False)}\n"
         f"原章节：{json.dumps(existing_data, ensure_ascii=False)}\n"
         f"{length}\n{tech_note}{dark_note}{research_note}\n请重新创作本章，与原文有明显不同且质量更优。"

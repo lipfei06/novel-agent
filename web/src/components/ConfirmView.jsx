@@ -86,7 +86,26 @@ export default function ConfirmView({ view, onSubmit, busy, auto, onAutoChange }
       </div>
 
       {isChapter ? (
-        <SceneEditor chapter={view.payload} onEdit={(data) => onSubmit({ action: 'edit', data })} />
+        <>
+          {view.payload?.quality && (
+            <div className="card p-3 mb-3 text-xs space-y-1">
+              {view.payload.quality.duplicates?.length ? (
+                <p className="text-amber-700 dark:text-amber-300">
+                  ⚠️ 机器质检：{view.payload.quality.duplicates.length} 处疑似重复场景（相似度{' '}
+                  {Math.max(...view.payload.quality.duplicates.map((d) => d.ratio))}），建议在下方编辑中处理
+                </p>
+              ) : (
+                <p className="text-green-600 dark:text-green-400">✅ 机器质检通过（{view.payload.quality.words?.actual ?? 0} 字）</p>
+              )}
+              {view.payload.quality.missing_beats?.length > 0 && (
+                <p className="text-amber-700 dark:text-amber-300">
+                  ⚠️ 规划了但未写的节拍：{view.payload.quality.missing_beats.join('；')}
+                </p>
+              )}
+            </div>
+          )}
+          <SceneEditor chapter={view.payload} onEdit={(data) => onSubmit({ action: 'edit', data })} />
+        </>
       ) : jsonMode ? (
         <div className="card p-4">
           <textarea

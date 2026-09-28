@@ -135,7 +135,7 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
     try {
       const { task_id } = await api.startRegenerateTask(projectId, vol, ch, '', `chapter_${vol}_${ch}`)
       const result = await runTaskWithProgress(task_id, (p) => setRegenProgress(p))
-      setPreview({ data: result.pending, source: 'regenerate' })
+      setPreview({ data: result.pending, source: 'regenerate', quality: result.quality ?? null })
     } catch (e) {
       setError(e.message)
     } finally {
@@ -344,6 +344,18 @@ export default function ChapterPage({ projectId, vol, ch, onBack, onNavigate }) 
               {preview.source === 'proposal' ? 'AI 方案预览' : '重新生成预览'} · 第{ch}章 {preview.data.title}
             </h3>
             <p className="text-xs text-muted mb-4">接受后用此版本覆盖当前章节，放弃则保留原稿。</p>
+            {preview.quality && (
+              <div className="mb-3">
+                <QualityReportCard
+                  projectId={projectId}
+                  vol={vol}
+                  ch={ch}
+                  report={preview.quality}
+                  pending={preview.data}
+                  onChangePending={(p, q) => setPreview({ ...preview, data: p, quality: q ?? preview.quality })}
+                />
+              </div>
+            )}
             {(preview.data.scenes ?? []).map((s, i) => (
               <div key={s.id ?? i} className="rounded border border-border p-3 mb-2">
                 <p className="text-xs font-medium text-primary mb-1">{s.heading}</p>

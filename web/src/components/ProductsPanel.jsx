@@ -4,8 +4,9 @@ import RelationGraph from './RelationGraph.jsx'
 import ChatPanel from './ChatPanel.jsx'
 import TechniquePanel from './TechniquePanel.jsx'
 import CanonPanel from './CanonPanel.jsx'
+import StyleSamplesPanel from './StyleSamplesPanel.jsx'
 
-// 作品设定区：全局规划 / 选题 / 世界观 / 人物 / 总纲 / 手法 / 伏笔与道具
+// 作品设定区：全局规划 / 选题 / 世界观 / 人物 / 总纲 / 手法 / 风格 / 伏笔与道具
 const TABS = [
   ['chief', '全局规划'],
   ['concept', '选题立项'],
@@ -13,6 +14,7 @@ const TABS = [
   ['characters', '人物'],
   ['outline', '总纲'],
   ['techniques', '手法'],
+  ['style', '风格'],
   ['canon', '伏笔与道具'],
 ]
 
@@ -137,6 +139,9 @@ export default function ProductsPanel({ projectId, autoCollapse = false }) {
                 />
               )}
               {tab === 'canon' && <CanonPanel data={data} />}
+              {tab === 'style' && (
+                <StyleSamplesPanel projectId={projectId} samples={data.style_samples} onChanged={load} />
+              )}
             </>
           )}
         </>

@@ -365,6 +365,8 @@ def _stage5(cfg: Config):
 
                 get_logger().warning("[stage5] 研究循环失败，回退常规写作: %s", exc)
 
+        from novel_agent.agents.quality import check_chapter_quality
+
         chapter = _confirm_product(
             "stage5",
             "章节正文",
@@ -372,7 +374,15 @@ def _stage5(cfg: Config):
                 packet, cfg, memory_context=memory_context, rag_context=rag_context,
                 techniques=state.get("techniques"), blueprint=state.get("narrative_blueprint"),
                 tools=chapter_tools, research_digest=research_digest,
+                style_samples=state.get("style_samples"),
             ),
+            # 质检报告并入确认载荷：机器审核先于人工确认
+            payload_fn=lambda ch: {
+                **ch.model_dump(),
+                "quality": check_chapter_quality(
+                    ch.model_dump(), packet.model_dump(), state.get("chapters") or {}, cfg,
+                ),
+            },
             rebuild=lambda cur, d: (
                 edit_scene(cur, d["scene_id"], d.get("instruction", ""), cfg)[0]
                 if isinstance(d, dict) and "scene_id" in d
@@ -398,6 +408,9 @@ def _stage5(cfg: Config):
         return {
             "chapters": chapters,
             "writer_proposals": proposals,
+            "pending_quality": check_chapter_quality(
+                chapter.model_dump(), packet.model_dump(), state.get("chapters") or {}, cfg,
+            ),
             "messages": [*state.get("messages", []), f"stage5 第{vol}卷第{ch}章正文确认"],
         }
 

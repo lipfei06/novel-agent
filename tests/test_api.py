@@ -363,6 +363,39 @@ def test_project_cost_endpoint():
         assert abs(got["est_cost_usd"] - 0.28) < 1e-6
 
 
+def test_quality_gate_and_style_samples():
+    """质检报告随生成返回 + 风格样本 CRUD + pending 场景 AI 重写。"""
+    with _client() as c:
+        c.post("/api/projects", json={"title": "质检", "genre": "short_story", "project_id": "apiQ"})
+        _run_setup(c, "apiQ")
+        r = c.post("/api/projects/apiQ/volumes/1/chapters", json={"goal": "质检流程"})
+        assert r.status_code == 200
+        data = r.json()
+        # 质检报告随预览返回：mock 生成内容确定、无重复、无节拍 → ok
+        q = data["quality"]
+        assert q["ok"] is True and q["duplicates"] == [] and q["missing_beats"] == []
+        assert q["words"]["actual"] > 0
+
+        # 风格样本：保存 → products 可见；超限拒绝
+        samples = [{"id": "s1", "name": "冷峻", "text": "他把烟按灭在鞋底上，没抬头。"}]
+        assert c.put("/api/projects/apiQ/style-samples", json={"samples": samples}).status_code == 200
+        products = c.get("/api/projects/apiQ/products").json()
+        assert products["style_samples"][0]["name"] == "冷峻"
+        too_many = [{"id": str(i), "name": "x", "text": "t"} for i in range(4)]
+        assert c.put("/api/projects/apiQ/style-samples", json={"samples": too_many}).status_code == 400
+
+        # pending 场景 AI 重写：更新 pending_chapter 并重跑质检
+        scene_id = data["pending"]["scenes"][0]["id"]
+        r = c.post("/api/projects/apiQ/chapters/1/1/pending-scene-rewrite",
+                   json={"scene_id": scene_id, "instruction": "更冷一些"})
+        assert r.status_code == 200
+        body = r.json()
+        assert "已重写" in body["chapter"]["scenes"][0]["text"]
+        assert body["quality"]["ok"] is True
+        # 放弃清理
+        assert c.delete("/api/projects/apiQ/chapters/1/1").status_code == 200
+
+
 def test_update_chapter():
     with _client() as c:
         c.post("/api/projects", json={"title": "改章", "genre": "short_story", "project_id": "apiU"})

@@ -37,8 +37,12 @@ class NovelState(TypedDict, total=False):
 
     # 卷/章管理
     pending_chapter: dict | None  # 待确认的生成章节（预览）
+    pending_quality: dict | None  # 上述章节的质检报告（机器审核，先于人工预览）
     character_state: dict | None  # 主要人物当前状态卡
     writer_proposals: dict | None  # 写手智能体的记忆更新提案（stage7 消费后清除）
+
+    # 作者风格样本：[{id, name, text}]，注入写手 prompt 作风格锚点
+    style_samples: list[dict] | None
 
     # 正典事实层：事件账本（{vol_ch: [事件]}) 与道具登记卡（{道具名: {facts, first_ch, last_ch}}）
     event_ledger: dict | None
