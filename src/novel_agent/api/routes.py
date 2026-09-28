@@ -794,6 +794,7 @@ def _regenerate_job(project_id: str, vol: int, ch: int, instruction: str, chat_c
             existing, packet, cfg, memory_context=memory_context, rag_context=rag_context,
             techniques=values.get("techniques"), blueprint=values.get("narrative_blueprint"),
             research_digest=research_digest, style_samples=values.get("style_samples"),
+            target_words=int((values.get("word_budget") or {}).get("per_chapter") or 0) or None,
         )
 
         # 质检门：机器审核先于人工预览
@@ -1336,10 +1337,14 @@ def _chapter_generation_job(project_id: str, vol: int, ch: int | None, body: Cha
 
         progress("写手正在写正文（约 1-3 分钟）…", 60)
         chapter_tools = tools_for_chapter(root, packet.model_dump(), top_k=int(cfg.library.get("tool_top_k", 3)))
+        from novel_agent.agents.write import arc_directive
+
         chapter = generate_chapter(
             packet, cfg, memory_context=memory_context, rag_context=rag_context,
             techniques=techniques, blueprint=blueprint, tools=chapter_tools,
             research_digest=research_digest, style_samples=values.get("style_samples"),
+            arc_note=arc_directive(values.get("characters"), values.get("character_state")),
+            target_words=int((values.get("word_budget") or {}).get("per_chapter") or 0) or None,
         )
 
         # 质检门：机器审核先于人工预览（查重/节拍兑现/文风），报告随预览交付
@@ -1756,11 +1761,33 @@ def project_products(project_id: str, request: Request) -> dict:
         "prop_registry": values.get("prop_registry"),
         "style_samples": values.get("style_samples"),
         "pending_quality": values.get("pending_quality"),
+        "word_budget": values.get("word_budget"),
         "character_state": values.get("character_state"),
         "techniques": values.get("techniques"),
         "narrative_blueprint": values.get("narrative_blueprint"),
         "current_stage": values.get("current_stage"),
     }
+
+
+class WordBudgetIn(BaseModel):
+    per_chapter: int  # 每章目标字数；<=0 表示清除覆盖，回退题材 Profile
+
+
+@router.put("/projects/{project_id}/word-budget")
+def update_word_budget(project_id: str, body: WordBudgetIn, request: Request) -> dict:
+    """设置项目级每章字数预算（结构漂移治理：立项目标超标时压缩后续章节）。"""
+    pm = _pm(request)
+    try:
+        meta = pm.get_meta(project_id)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    _, runtime, _values, _cfg = _project_ctx(request, project_id, meta.genre)
+    n = int(body.per_chapter)
+    if n > 0 and not (300 <= n <= 50000):
+        raise HTTPException(status_code=400, detail="每章字数应在 300-50000 之间；0 表示清除覆盖")
+    value = {"per_chapter": n} if n > 0 else None
+    runtime.graph.update_state(runtime.thread, {"word_budget": value})
+    return {"ok": True, "word_budget": value}
 
 
 @router.put("/projects/{project_id}/techniques")

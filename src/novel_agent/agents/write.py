@@ -68,6 +68,8 @@ def generate_chapter(
     tools: list[dict] | None = None,
     research_digest: str = "",
     style_samples: list[dict] | None = None,
+    arc_note: str = "",
+    target_words: int | None = None,
 ) -> Chapter:
     packet_data = packet.model_dump() if hasattr(packet, "model_dump") else dict(packet)
     if is_mock():
@@ -80,7 +82,7 @@ def generate_chapter(
     from novel_agent.agents.blueprint import dark_line_directive
     from novel_agent.library.techniques import stage_guidance
 
-    length = _length_directive(int(getattr(cfg.genre, "words_per_chapter", 0) or 0))
+    length = _length_directive(int(target_words or getattr(cfg.genre, "words_per_chapter", 0) or 0))
     tech_note = stage_guidance(techniques, ("writing",))
     dark_note = dark_line_directive(blueprint)
     tool_note = ""
@@ -93,14 +95,14 @@ def generate_chapter(
     user = (
         f"{style_note}{extra}\nwriter_packet：{json.dumps(packet_data, ensure_ascii=False)}\n{length}\n"
         f"本章标题必须为《{packet.title}》，不得另起标题。\n"
-        f"{tech_note}{dark_note}{tool_note}{research_note}\n请写本章正文。"
+        f"{tech_note}{dark_note}{tool_note}{arc_note}{research_note}\n请写本章正文。"
     )
     messages = build_messages(SYSTEM_PROMPT, user, "write", cfg.token_budget, style=style_directive(cfg))
     llm = get_chat_model("writer", cfg)
     chapter = invoke_structured(llm, messages, schema=Chapter)
     # 标题硬约束（写手偶发自拟标题）+ 字数核验轻修（OPT 批次发现：每章超写 20~30%）
     chapter = chapter.model_copy(update={"title": packet.title or chapter.title})
-    target = int(getattr(cfg.genre, "words_per_chapter", 0) or 0)
+    target = int(target_words or getattr(cfg.genre, "words_per_chapter", 0) or 0)
     if target:
         chapter = tune_length(chapter, target, cfg)
     return chapter
@@ -137,6 +139,7 @@ def rewrite_chapter(
     blueprint: dict | None = None,
     research_digest: str = "",
     style_samples: list[dict] | None = None,
+    target_words: int | None = None,
 ) -> Chapter:
     """重新创作既有章节：保持设定一致，但叙事/表达明显不同且更优。"""
     existing_data = existing.model_dump() if hasattr(existing, "model_dump") else dict(existing)
@@ -155,7 +158,7 @@ def rewrite_chapter(
     from novel_agent.library.techniques import stage_guidance
 
     orig_len = sum(len(s.get("text") or "") for s in existing_data.get("scenes") or [])
-    target = int(getattr(cfg.genre, "words_per_chapter", 0) or 0)
+    target = int(target_words or getattr(cfg.genre, "words_per_chapter", 0) or 0)
     length_parts = []
     if orig_len > 0:
         length_parts.append(f"原章约 {orig_len} 字，新版篇幅不得明显少于原章")
@@ -193,3 +196,37 @@ def _mock_chapter(packet: dict) -> Chapter:
             SceneBlock(id="s3", heading="钩子", text=f"（{title}）结尾：{packet.get('hook') or '新悬念浮现'}。"),
         ],
     )
+
+
+# 人物弧光阶段 → 本章"代价/缺陷"表现要求：对抗"主角完成态"（全程零失误零代价）
+ARC_COST = {
+    "start": "本章让主角暴露一个性格缺陷或付出小代价（误判/犹豫/被迫求助），不要全程顺利。",
+    "mid": "本章让主角的缺陷造成一次实际损失或代价（关系/机会/资源），并促使其正视问题。",
+    "end": "本章让主角为蜕变付出不可逆的代价（放弃/失去/告别），代价要在场景中具体呈现。",
+}
+
+
+def arc_directive(characters: list[dict] | None, character_state: dict | None) -> str:
+    """从主角档案与状态卡导出本章人物弧光指引（纯代码，零成本；无主角档案返回空）。"""
+    try:
+        prot = next((c for c in characters or [] if (c or {}).get("role") == "protagonist"), None)
+        if not prot:
+            return ""
+        entries = (character_state or {}).get("entries") or []
+        st = next(
+            (e for e in entries if e.get("character_id") == prot.get("id") or e.get("name") == prot.get("name")),
+            None,
+        )
+        stage = (st or {}).get("arc_stage") or ""
+        rule = ARC_COST.get(stage)
+        if not rule:
+            return ""
+        name = (st or {}).get("name") or prot.get("name") or "主角"
+        flaw = (st or {}).get("flaw") or prot.get("flaw") or ""
+        flaw_part = f"其既定缺陷：{flaw}。" if flaw else ""
+        return (
+            f"\n<本章人物弧光指引>{name}当前弧光阶段：{stage}。{flaw_part}{rule}"
+            f"</本章人物弧光指引>"
+        )
+    except Exception:
+        return ""

@@ -138,7 +138,7 @@ export default function ProductsPanel({ projectId, autoCollapse = false }) {
                   onChanged={load}
                 />
               )}
-              {tab === 'canon' && <CanonPanel data={data} />}
+              {tab === 'canon' && <CanonPanel projectId={projectId} data={data} onChanged={load} />}
               {tab === 'style' && (
                 <StyleSamplesPanel projectId={projectId} samples={data.style_samples} onChanged={load} />
               )}

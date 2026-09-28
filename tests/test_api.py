@@ -420,6 +420,30 @@ def test_style_library():
         assert "风格要点" not in note2 and "原文片段" in note2
 
 
+def test_word_budget_and_arc_directive():
+    """项目级字数预算：设置/清除 + products 暴露；人物弧光指引按主角阶段导出。"""
+    with _client() as c:
+        c.post("/api/projects", json={"title": "预算", "genre": "short_story", "project_id": "apiB"})
+        _run_setup(c, "apiB")
+        assert c.put("/api/projects/apiB/word-budget", json={"per_chapter": 800}).status_code == 200
+        products = c.get("/api/projects/apiB/products").json()
+        assert products["word_budget"]["per_chapter"] == 800
+        # 越界拒绝；0 清除
+        assert c.put("/api/projects/apiB/word-budget", json={"per_chapter": 100}).status_code == 400
+        assert c.put("/api/projects/apiB/word-budget", json={"per_chapter": 0}).status_code == 200
+        assert c.get("/api/projects/apiB/products").json()["word_budget"] is None
+
+    from novel_agent.agents.write import arc_directive
+
+    chars = [{"id": "c1", "name": "陈默", "role": "protagonist", "flaw": "过度自信"}]
+    state = {"entries": [{"character_id": "c1", "name": "陈默", "arc_stage": "mid"}]}
+    note = arc_directive(chars, state)
+    assert "陈默" in note and "mid" in note and "过度自信" in note and "损失" in note
+    # 非主角/无状态 → 空
+    assert arc_directive([{"id": "c2", "name": "李莉", "role": "antagonist"}], state) == ""
+    assert arc_directive(chars, None) == ""
+
+
 def test_update_chapter():
     with _client() as c:
         c.post("/api/projects", json={"title": "改章", "genre": "short_story", "project_id": "apiU"})

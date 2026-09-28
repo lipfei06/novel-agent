@@ -366,6 +366,7 @@ def _stage5(cfg: Config):
                 get_logger().warning("[stage5] 研究循环失败，回退常规写作: %s", exc)
 
         from novel_agent.agents.quality import check_chapter_quality
+        from novel_agent.agents.write import arc_directive
 
         chapter = _confirm_product(
             "stage5",
@@ -375,6 +376,8 @@ def _stage5(cfg: Config):
                 techniques=state.get("techniques"), blueprint=state.get("narrative_blueprint"),
                 tools=chapter_tools, research_digest=research_digest,
                 style_samples=state.get("style_samples"),
+                arc_note=arc_directive(state.get("characters"), state.get("character_state")),
+                target_words=int((state.get("word_budget") or {}).get("per_chapter") or 0) or None,
             ),
             # 质检报告并入确认载荷：机器审核先于人工确认
             payload_fn=lambda ch: {

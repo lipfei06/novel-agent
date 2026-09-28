@@ -44,6 +44,9 @@ class NovelState(TypedDict, total=False):
     # 作者风格样本：[{id, name, text}]，注入写手 prompt 作风格锚点
     style_samples: list[dict] | None
 
+    # 项目级字数预算覆盖：{per_chapter: int}，未设置用题材 Profile 默认
+    word_budget: dict | None
+
     # 正典事实层：事件账本（{vol_ch: [事件]}) 与道具登记卡（{道具名: {facts, first_ch, last_ch}}）
     event_ledger: dict | None
     prop_registry: dict | None

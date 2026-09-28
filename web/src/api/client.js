@@ -87,6 +87,8 @@ export const api = {
     request(`/projects/${id}/style-samples`, { method: 'PUT', body: JSON.stringify({ samples }) }),
   extractStyleSample: (text, name) =>
     request('/library/styles/extract', { method: 'POST', body: JSON.stringify({ text, name }) }),
+  updateWordBudget: (id, perChapter) =>
+    request(`/projects/${id}/word-budget`, { method: 'PUT', body: JSON.stringify({ per_chapter: perChapter }) }),
   setProjectTechniques: (id, ids) =>
     request(`/projects/${id}/techniques`, { method: 'PUT', body: JSON.stringify({ ids }) }),
   generateBlueprint: (id) => request(`/projects/${id}/blueprint/generate`, { method: 'POST' }),

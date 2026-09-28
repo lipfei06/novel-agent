@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { api } from '../api/client.js'
 
 // 数值序排章节键，避免 "1_10" 排到 "1_2" 前
 const sortKeys = (a, b) => {
@@ -47,8 +48,99 @@ export function repetitionPatterns(ledger, minChapters = 3, topN = 12) {
     .map(([gram, ks]) => ({ gram, chapters: [...ks].sort(sortKeys) }))
 }
 
+// 解析立项目标字数：兼容 10000 / "10000字" / "10万" 三种写法
+const parseTargetWords = (v) => {
+  if (v === undefined || v === null) return 0
+  const s = String(v)
+  if (/万/.test(s)) {
+    const n = parseFloat(s.replace(/[^\d.]/g, ''))
+    return Number.isFinite(n) ? Math.round(n * 10000) : 0
+  }
+  const n = parseInt(s.replace(/[^\d]/g, ''), 10)
+  return Number.isFinite(n) ? n : 0
+}
+
+// 结构健康：已写字数/章节 vs 立项目标/卷计划，偏差 >30% 给漂移治理选项
+function StructureHealth({ projectId, data, onChanged }) {
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState(null)
+  const [error, setError] = useState(null)
+
+  const chapters = data?.chapters ?? {}
+  const totalWords = Object.values(chapters).reduce(
+    (n, c) => n + (c?.scenes ?? []).reduce((m, s) => m + (s?.text ?? '').length, 0), 0,
+  )
+  const writtenChapters = Object.keys(chapters).length
+  const targetWords = parseTargetWords(data?.concept?.target_words)
+  const plannedChapters = (data?.volume_plans ?? []).reduce((n, v) => n + (v?.chapter_count || 0), 0)
+  const budget = data?.word_budget?.per_chapter || 0
+  if (!targetWords || writtenChapters === 0) return null
+  const drift = (totalWords - targetWords) / targetWords
+
+  const raiseTarget = async () => {
+    const input = window.prompt('新的立项目标字数', String(targetWords))
+    if (input === null) return
+    const n = parseTargetWords(input)
+    if (!n) { setError('未识别到有效数字'); return }
+    setBusy(true)
+    setError(null)
+    try {
+      await api.productsUpdate(projectId, 'concept', { ...(data.concept ?? {}), target_words: n })
+      setNote(`立项目标已改为 ${n.toLocaleString()} 字`)
+      onChanged?.()
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+  const compressChapters = async () => {
+    const remaining = Math.max(1, (plannedChapters || writtenChapters + 1) - writtenChapters)
+    const suggested = Math.max(500, Math.round((targetWords - totalWords) / remaining / 100) * 100)
+    const input = window.prompt(
+      `后续每章目标字数（剩余约 ${remaining} 章；当前${budget ? `自定义 ${budget}` : '按题材默认'}）`,
+      String(budget || suggested),
+    )
+    if (input === null) return
+    const n = parseInt(input.replace(/[^\d]/g, ''), 10) || 0
+    setBusy(true)
+    setError(null)
+    try {
+      const r = await api.updateWordBudget(projectId, n)
+      setNote(n > 0 ? `后续章节目标已设为 ${n} 字/章` : '字数覆盖已清除，回退题材默认')
+      onChanged?.()
+    } catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <div>
+      <p className="text-sm font-semibold text-primary mb-2">📐 结构健康</p>
+      <div className="rounded border border-border p-3 text-xs space-y-1">
+        <p>
+          已写 <span className="font-medium text-foreground">{totalWords.toLocaleString()}</span> 字 ·
+          {' '}{writtenChapters} 章
+          {plannedChapters > 0 && <> / 计划 {plannedChapters} 章</>}
+          {' '}· 立项目标 {targetWords.toLocaleString()} 字
+          {budget > 0 && <span className="text-muted">（后续章节自定义 {budget} 字/章）</span>}
+        </p>
+        {Math.abs(drift) > 0.3 ? (
+          <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/10 p-2 space-y-1.5">
+            <p className="text-amber-700 dark:text-amber-300 font-medium">
+              {drift > 0 ? '超出' : '低于'}立项目标 {Math.round(Math.abs(drift) * 100)}%——建议二选一对齐，避免结构失控
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-ghost text-xs" disabled={busy} onClick={raiseTarget}>改立项目标</button>
+              <button className="btn-ghost text-xs" disabled={busy} onClick={compressChapters}>设定后续章节字数</button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-muted">字数与目标偏差 {Math.round(Math.abs(drift) * 100)}%，结构正常。</p>
+        )}
+        {note && <p className="text-green-600 dark:text-green-400">{note}</p>}
+        {error && <p className="text-red-600">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
 // 伏笔与道具：把正典事实层（事件账本/道具卡/已埋伏笔）变成可扫读的页面
-export default function CanonPanel({ data }) {
+export default function CanonPanel({ data, onChanged }) {
   const [openCh, setOpenCh] = useState(null)
   const ledger = data?.event_ledger ?? {}
   const props = data?.prop_registry ?? {}
@@ -87,6 +179,9 @@ export default function CanonPanel({ data }) {
 
   return (
     <div className="space-y-5">
+      {/* 结构健康：字数/章数漂移治理 */}
+      <StructureHealth projectId={projectId} data={data} onChanged={onChanged} />
+
       {/* 重复桥段警示 */}
       <div>
         <p className="text-sm font-semibold text-primary mb-2">⚠️ 重复桥段警示</p>
