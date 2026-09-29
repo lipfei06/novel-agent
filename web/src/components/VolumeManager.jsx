@@ -14,14 +14,30 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
   const [chatVol, setChatVol] = useState(null) // 正在对话的卷号
   const [backupVol, setBackupVol] = useState(null) // 展示备份对话框的卷号
   const [cost, setCost] = useState(null) // 按章成本流水（可选展示）
+  const [pipeline, setPipeline] = useState(null) // 流水线待确认（章节规划/正文预览/一致性报告）
 
   const loadVolumes = () =>
     api.listVolumes(projectId).then((d) => setVolumes(d.volumes)).catch((e) => setError(e.message))
 
+  const loadPipeline = () =>
+    api.projectState(projectId).then((d) => {
+      if (!d.done && ['stage4b', 'stage5', 'stage6'].includes(d.stage)) {
+        setPipeline(d)
+      } else {
+        setPipeline(null)
+      }
+    }).catch(() => setPipeline(null))
+
   useEffect(() => {
     loadVolumes()
+    loadPipeline()
     api.projectCost(projectId).then(setCost).catch(() => {})
   }, [projectId])
+
+  // 产品变化（章节接受/放弃等）后同步刷新待确认状态
+  useEffect(() => {
+    loadPipeline()
+  }, [products])
 
   const run = async (fn) => {
     setBusy(true)
@@ -29,6 +45,7 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
     try {
       await fn()
       await loadVolumes()
+      loadPipeline()
       onProductsChange?.()
     } catch (e) {
       setError(e.message)
@@ -152,6 +169,21 @@ export default function VolumeManager({ projectId, products, onProductsChange, o
                   onClose={() => setBackupVol(null)}
                   onRestored={onProductsChange}
                 />
+              )}
+              {pipeline && pipeline.current_volume === v.volume && (
+                <div className="mt-3 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/10 p-3 flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-xs text-amber-700 dark:text-amber-300">
+                    🕗 待确认：{pipeline.stage_label || pipeline.stage}
+                    {pipeline.payload?.title ? ` · 《${pipeline.payload.title}》` : ''}
+                    {pipeline.stage === 'stage5' ? '（正文预览，未进章节列表）' : ''}
+                  </span>
+                  <button
+                    className="btn-ghost text-xs"
+                    onClick={() => onNewChapter?.({ projectId, vol: v.volume })}
+                  >
+                    去处理 →
+                  </button>
+                </div>
               )}
               {chatVol === v.volume && (
                 <div className="mt-3 pt-3 border-t border-border">
