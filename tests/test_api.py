@@ -500,17 +500,19 @@ def test_delete_project():
         assert c.get("/api/projects/api5").status_code == 404
 
 
-def test_products_update_blocked_with_pending_confirm():
-    """有待确认点（中断）时禁止改设定——update_state 会静默清掉挂起的确认。"""
+def test_products_update_warns_on_pending_confirm():
+    """待确认点存在时改设定：允许，但响应必须带 warning（update_state 会清掉挂起预览，
+    confirm 恢复时会重跑该阶段——重新生成即可用新设定产出）。"""
     with _client() as c:
-        c.post("/api/projects", json={"title": "阻塞", "genre": "short_story", "project_id": "apiP"})
+        c.post("/api/projects", json={"title": "警告", "genre": "short_story", "project_id": "apiP"})
         c.post("/api/projects/apiP/start", json={"idea": "x"})
-        # stage0 中断挂起 → PUT products 应 409，且报出阶段名
+        # stage0 中断挂起 → PUT 成功但带 warning
         r = c.put("/api/projects/apiP/products", json={"field": "outline", "value": {"premise": "x"}})
-        assert r.status_code == 409
-        assert "stage0" in r.json()["detail"]
-        # 推进到 stage1 → 仍阻塞（写作阶段前每个停点都有确认）
+        assert r.status_code == 200
+        assert "stage0" in r.json().get("warning", "")
+        assert "清掉" in r.json().get("warning", "")
+        # confirm 恢复重跑 stage0 → 再次 PUT 仍带警告（行为幂等）
         c.post("/api/projects/apiP/confirm", json={"action": "accept"})
         r = c.put("/api/projects/apiP/products", json={"field": "outline", "value": {"premise": "y"}})
-        assert r.status_code == 409
-        assert "stage1" in r.json()["detail"]
+        assert r.status_code == 200
+        assert "stage0" in r.json().get("warning", "")

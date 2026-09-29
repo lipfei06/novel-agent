@@ -344,19 +344,20 @@ def update_product(project_id: str, body: UpdateProductIn, request: Request) -> 
     if body.field not in ("concept", "world_bible", "characters", "outline", "volume_plans", "techniques", "narrative_blueprint"):
         raise HTTPException(status_code=400, detail=f"不支持的设定字段：{body.field}")
     runtime = store.get_or_create(project_id, meta.genre)
-    # 有待确认点时禁止改设定：update_state 会清掉挂起的中断（待确认的规划/正文随之丢失）
-    if _interrupt_payload(runtime) is not None:
-        stage = _interrupt_payload(runtime).get("stage")
-        raise HTTPException(
-            status_code=409,
-            detail=f"当前有『{stage}』环节待确认。请先在确认页处理（接受/放弃）后再修改设定，"
-                   f"否则待确认内容会被静默清掉。",
-        )
+    # 允许改设定，但若当前挂起着确认点（已生成的规划/正文预览），update_state 会清掉它——
+    # 不阻塞（写作期间调设定是合法需求），但必须在响应里明示代价，避免静默丢失。
+    pending = _interrupt_payload(runtime)
     try:
         runtime.graph.update_state(runtime.thread, {body.field: body.value})
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"保存失败：{exc}") from exc
-    return {"ok": True, "field": body.field}
+    result = {"ok": True, "field": body.field}
+    if pending is not None:
+        result["warning"] = (
+            "本次修改清掉了挂起的『%s』确认点——已生成的预览（如有）已丢失，"
+            "重新生成即可用新设定产出。" % pending.get("stage")
+        )
+    return result
 
 
 @router.post("/projects/{project_id}/export")
