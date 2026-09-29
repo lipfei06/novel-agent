@@ -119,7 +119,7 @@ function StructureHealth({ projectId, data, onChanged }) {
           {' '}· 立项目标 {targetWords.toLocaleString()} 字
           {budget > 0 && <span className="text-muted">（后续章节自定义 {budget} 字/章）</span>}
         </p>
-        {Math.abs(drift) > 0.3 ? (
+        {writtenChapters >= 5 && Math.abs(drift) > 0.3 ? (
           <div className="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/10 p-2 space-y-1.5">
             <p className="text-amber-700 dark:text-amber-300 font-medium">
               {drift > 0 ? '超出' : '低于'}立项目标 {Math.round(Math.abs(drift) * 100)}%——建议二选一对齐，避免结构失控
@@ -130,7 +130,11 @@ function StructureHealth({ projectId, data, onChanged }) {
             </div>
           </div>
         ) : (
-          <p className="text-muted">字数与目标偏差 {Math.round(Math.abs(drift) * 100)}%，结构正常。</p>
+          <p className="text-muted">
+            {writtenChapters < 5
+              ? '开卷阶段：字数偏差暂不评估（满 5 章后开始监控结构漂移）。'
+              : `字数与目标偏差 ${Math.round(Math.abs(drift) * 100)}%，结构正常。`}
+          </p>
         )}
         {note && <p className="text-green-600 dark:text-green-400">{note}</p>}
         {error && <p className="text-red-600">{error}</p>}
@@ -140,7 +144,7 @@ function StructureHealth({ projectId, data, onChanged }) {
 }
 
 // 伏笔与道具：把正典事实层（事件账本/道具卡/已埋伏笔）变成可扫读的页面
-export default function CanonPanel({ data, onChanged }) {
+export default function CanonPanel({ projectId, data, onChanged }) {
   const [openCh, setOpenCh] = useState(null)
   const ledger = data?.event_ledger ?? {}
   const props = data?.prop_registry ?? {}
