@@ -172,12 +172,29 @@ def _json_mode_unsupported(exc: Exception) -> bool:
     )
 
 
-def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 2):
+_TRANSIENT_KEYWORDS = (
+    "timeout", "timed out", "connection", "connect", "reset by peer", "eof",
+    "rate limit", "429", "500", "502", "503", "504", "unavailable",
+    "bad gateway", "overloaded", "internal server error", "remote end",
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """识别网络/服务端瞬时故障（值得更长退避后再试），与格式错误区分。"""
+    name = type(exc).__name__.lower()
+    if any(k in name for k in ("timeout", "connection", "connect", "network", "protocol")):
+        return True
+    text = f"{exc}".lower()
+    return any(k in text for k in _TRANSIENT_KEYWORDS)
+
+
+def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 3):
     """安全调用结构化输出：注入 json 提示与 schema 说明；解析失败自动宽松修复并重试。
 
     DeepSeek 等 OpenAI 兼容服务：要求 prompt 含 "json" 字样；对嵌套结构遵循度一般，
     因此采用"提取 JSON → 严格校验 → 宽松修复 → 重试"的策略，尽量不中断创作。
-    重试之间加指数退避（1s/2s），避免限流/网络错误时无间隔连击。
+    重试退避按错误类型区分：网络/服务端瞬时故障（超时/断连/5xx/限流）用长退避
+    （2s/8s/20s，扛过几十秒的服务抖动），格式错误维持短退避（1s/2s/4s）快速换思路。
     不修改调用方传入的 messages（注入只发生在内部拷贝上）。
     """
     import time
@@ -201,7 +218,8 @@ def invoke_structured(llm, messages: list[dict], schema=None, retries: int = 2):
     attempt = 0
     while attempt <= retries:
         if attempt:
-            time.sleep(min(2 ** (attempt - 1), 4))
+            waits = (8, 20, 30) if _is_transient(last_err) else (1, 2, 4)
+            time.sleep(waits[min(attempt, len(waits)) - 1])
         try:
             response = bound.invoke(msgs)
         except Exception as exc:  # noqa: BLE001

@@ -79,3 +79,75 @@ def test_build_messages_shape():
         {"role": "system", "content": "sys"},
         {"role": "user", "content": "usr"},
     ]
+
+
+def test_invoke_structured_transient_backoff_then_success():
+    """网络/服务端瞬时故障：长退避（2s/8s）重试后成功，不把抖动当致命错误。"""
+    from unittest.mock import patch
+
+    from pydantic import BaseModel
+
+    from novel_agent.llm.factory import invoke_structured
+
+    class Ok(BaseModel):
+        ok: int
+
+    class _R:
+        def __init__(self, content):
+            self.content = content
+
+    class _Flaky:
+        def __init__(self):
+            self.calls = 0
+
+        def bind(self, **kw):
+            return self
+
+        def invoke(self, msgs):
+            self.calls += 1
+            if self.calls <= 2:
+                raise RuntimeError("Connection reset by peer")
+            return _R('{"ok": 1}')
+
+    sleeps = []
+    with patch("time.sleep", side_effect=lambda s: sleeps.append(s)):
+        out = invoke_structured(_Flaky(), [{"role": "user", "content": "x"}], schema=Ok)
+    assert out.ok == 1
+    assert len(sleeps) == 2
+    assert sleeps[0] >= 2 and sleeps[1] >= 8  # 瞬时故障走 2s/8s 长退避
+
+
+def test_invoke_structured_format_error_short_backoff():
+    """格式错误（非网络故障）：维持 1s/2s 短退避快速换思路。"""
+    from unittest.mock import patch
+
+    from pydantic import BaseModel
+
+    from novel_agent.llm.factory import invoke_structured
+
+    class Ok(BaseModel):
+        ok: int
+
+    class _R:
+        def __init__(self, content):
+            self.content = content
+
+    class _Chatty:
+        def __init__(self):
+            self.calls = 0
+
+        def bind(self, **kw):
+            return self
+
+        def invoke(self, msgs):
+            self.calls += 1
+            if self.calls <= 2:
+                return _R("我不会输出 JSON，抱歉")  # 内容不是结构
+            return _R('{"ok": 7}')
+
+    sleeps = []
+    with patch("time.sleep", side_effect=lambda s: sleeps.append(s)):
+        out = invoke_structured(_Chatty(), [{"role": "user", "content": "x"}], schema=Ok)
+    assert out.ok == 7
+    assert len(sleeps) == 2
+    assert sleeps[0] <= 4 and sleeps[1] <= 4  # 格式错误走短退避

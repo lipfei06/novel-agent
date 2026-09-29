@@ -225,6 +225,8 @@ def confirm(project_id: str, body: ConfirmIn, request: Request) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     runtime = store.get_or_create(project_id, meta.genre)
+    from novel_agent.llm.factory import LLMStructuredError
+
     if _interrupt_payload(runtime) is None:
         st = runtime.graph.get_state(runtime.thread)
         if st.next:
@@ -237,6 +239,11 @@ def confirm(project_id: str, body: ConfirmIn, request: Request) -> dict:
                 runtime.graph.invoke(None, runtime.thread)
             except HTTPException:
                 raise
+            except LLMStructuredError as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"{exc} 图状态已停在断点，稍候重新点击「接受」即可续跑。",
+                ) from exc
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"断点恢复失败：{exc}") from exc
             return _confirm_view(runtime)
@@ -254,6 +261,12 @@ def confirm(project_id: str, body: ConfirmIn, request: Request) -> dict:
         runtime.graph.invoke(Command(resume=resume), runtime.thread)
     except HTTPException:
         raise
+    except LLMStructuredError as exc:
+        # LLM 瞬时故障/格式失败：图状态已停在断点，重试即可恢复——用 503 而非 500 表达"可重试"
+        raise HTTPException(
+            status_code=503,
+            detail=f"{exc} 图状态已停在断点，稍候重新点击「接受」即可续跑。",
+        ) from exc
     except Exception as exc:
         # 把真实失败原因返回给前端，避免笼统的 500
         raise HTTPException(status_code=500, detail=f"环节执行失败：{exc}") from exc

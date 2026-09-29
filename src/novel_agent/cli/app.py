@@ -353,7 +353,7 @@ def serve(
     # 统一日志输出（替代散落的 print）
     from novel_agent.logutil import configure_logging
 
-    configure_logging()
+    configure_logging(log_file=os.path.join(str(root), "logs", "novel-agent.log"))
 
     # uvicorn --reload 要求以"导入字符串 + factory"方式加载应用，root 经环境变量传入
     from novel_agent.api.app import _ROOT_ENV
