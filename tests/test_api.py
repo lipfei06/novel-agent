@@ -176,19 +176,15 @@ def test_state_endpoint():
 
 
 def test_update_product():
+    """设定表单保存：未启动项目（无确认点）可直接改；待确认时则被守卫拦截（见上一条测试）。"""
     with _client() as c:
         c.post("/api/projects", json={"title": "改设", "genre": "short_story", "project_id": "api8"})
-        c.post("/api/projects/api8/start", json={"idea": "x"})
-        # 推进到 stage1 后，concept 已存在
-        c.post("/api/projects/api8/confirm", json={"action": "accept"})
-        # 修改概念
-        products = c.get("/api/projects/api8/products").json()
-        concept = dict(products["concept"])
-        concept["title_idea"] = "被表单修改的书名"
+        # 未启动、无中断 → 直接保存 concept
+        concept = {"title_idea": "被表单修改的书名", "logline": "一句话故事"}
         r = c.put("/api/projects/api8/products", json={"field": "concept", "value": concept})
         assert r.status_code == 200
-        products2 = c.get("/api/projects/api8/products").json()
-        assert products2["concept"]["title_idea"] == "被表单修改的书名"
+        products = c.get("/api/projects/api8/products").json()
+        assert products["concept"]["title_idea"] == "被表单修改的书名"
         # 非法字段 → 400
         assert c.put("/api/projects/api8/products", json={"field": "nope", "value": {}}).status_code == 400
 
@@ -502,3 +498,19 @@ def test_delete_project():
         c.post("/api/projects", json={"title": "删", "genre": "short_story", "project_id": "api5"})
         assert c.delete("/api/projects/api5").json()["deleted"] == "api5"
         assert c.get("/api/projects/api5").status_code == 404
+
+
+def test_products_update_blocked_with_pending_confirm():
+    """有待确认点（中断）时禁止改设定——update_state 会静默清掉挂起的确认。"""
+    with _client() as c:
+        c.post("/api/projects", json={"title": "阻塞", "genre": "short_story", "project_id": "apiP"})
+        c.post("/api/projects/apiP/start", json={"idea": "x"})
+        # stage0 中断挂起 → PUT products 应 409，且报出阶段名
+        r = c.put("/api/projects/apiP/products", json={"field": "outline", "value": {"premise": "x"}})
+        assert r.status_code == 409
+        assert "stage0" in r.json()["detail"]
+        # 推进到 stage1 → 仍阻塞（写作阶段前每个停点都有确认）
+        c.post("/api/projects/apiP/confirm", json={"action": "accept"})
+        r = c.put("/api/projects/apiP/products", json={"field": "outline", "value": {"premise": "y"}})
+        assert r.status_code == 409
+        assert "stage1" in r.json()["detail"]

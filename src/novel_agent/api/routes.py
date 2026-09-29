@@ -344,6 +344,14 @@ def update_product(project_id: str, body: UpdateProductIn, request: Request) -> 
     if body.field not in ("concept", "world_bible", "characters", "outline", "volume_plans", "techniques", "narrative_blueprint"):
         raise HTTPException(status_code=400, detail=f"不支持的设定字段：{body.field}")
     runtime = store.get_or_create(project_id, meta.genre)
+    # 有待确认点时禁止改设定：update_state 会清掉挂起的中断（待确认的规划/正文随之丢失）
+    if _interrupt_payload(runtime) is not None:
+        stage = _interrupt_payload(runtime).get("stage")
+        raise HTTPException(
+            status_code=409,
+            detail=f"当前有『{stage}』环节待确认。请先在确认页处理（接受/放弃）后再修改设定，"
+                   f"否则待确认内容会被静默清掉。",
+        )
     try:
         runtime.graph.update_state(runtime.thread, {body.field: body.value})
     except Exception as exc:
