@@ -344,7 +344,7 @@ def update_product(project_id: str, body: UpdateProductIn, request: Request) -> 
         meta = pm.get_meta(project_id)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    if body.field not in ("concept", "world_bible", "characters", "outline", "volume_plans", "techniques", "narrative_blueprint"):
+    if body.field not in ("concept", "world_bible", "characters", "outline", "volume_plans", "techniques", "narrative_blueprint", "event_ledger", "prop_registry"):
         raise HTTPException(status_code=400, detail=f"不支持的设定字段：{body.field}")
     runtime = store.get_or_create(project_id, meta.genre)
     # 允许改设定，但若当前挂起着确认点（已生成的规划/正文预览），update_state 会清掉它——
@@ -662,6 +662,14 @@ def delete_saved_chapter(project_id: str, vol: int, ch: int, request: Request) -
     if key in packets:
         packets.pop(key)
         updates["writer_packets"] = packets
+    # 正典账本回滚：删除本章的事件账本条目；道具卡移除在本章首次登记的（first_ch == 本章），
+    # 跨章道具（更早章节首次登记）保留，避免误删长期道具
+    el = dict(values.get("event_ledger") or {})
+    el.pop(key, None)
+    pr = dict(values.get("prop_registry") or {})
+    pr = {k: v for k, v in pr.items() if v.get("first_ch") != key}
+    updates["event_ledger"] = el
+    updates["prop_registry"] = pr
     runtime.graph.update_state(runtime.thread, updates)
 
     # 同步回滚：中期摘要 + 长期向量（按章节 meta）+ 时序图谱（按 vol_ch）
