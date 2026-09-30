@@ -516,3 +516,31 @@ def test_products_update_warns_on_pending_confirm():
         r = c.put("/api/projects/apiP/products", json={"field": "outline", "value": {"premise": "y"}})
         assert r.status_code == 200
         assert "stage0" in r.json().get("warning", "")
+
+
+def test_delete_chapter_rolls_back_canon_ledger():
+    """删除章节时正典账本回滚：事件账本条目删除、本章首次登记的道具卡移除、跨章道具保留。"""
+    with _client() as c:
+        c.post("/api/projects", json={"title": "回滚", "genre": "short_story", "project_id": "apiR"})
+        _run_setup(c, "apiR")
+        c.post("/api/projects/apiR/volumes/1/chapters", json={"goal": "x"})
+        c.post("/api/projects/apiR/chapters/1/1/accept")
+        # 预置账本与道具（模拟该章登记的内容 + 一件跨章道具）
+        r = c.put("/api/projects/apiR/products", json={"field": "event_ledger",
+            "value": {"1_1": ["李霁觉醒白环被嘲", "李霁筹药钱救母"]}})
+        assert r.status_code == 200
+        r = c.put("/api/projects/apiR/products", json={"field": "prop_registry", "value": {
+            "破伞": {"facts": ["伞面发黄"], "first_ch": "1_1", "last_ch": "1_1"},
+            "旧物木簪": {"facts": ["从不离身"], "first_ch": "1_2", "last_ch": "1_2"}}})
+        assert r.status_code == 200
+        # 删除第一章（delete_saved_chapter：/volumes/ 路径才带正典账本回滚；
+        # /chapters/ 路径是 discard_chapter，只清待接受预览）
+        r = c.delete("/api/projects/apiR/volumes/1/chapters/1")
+        assert r.status_code == 200
+        d = c.get("/api/projects/apiR/products").json()
+        # 事件账本条目已随删除清理
+        assert "1_1" not in (d.get("event_ledger") or {})
+        # 本章首次登记的道具卡已移除，跨章道具（first_ch=1_2）保留
+        pr = d.get("prop_registry") or {}
+        assert "破伞" not in pr
+        assert "旧物木簪" in pr
