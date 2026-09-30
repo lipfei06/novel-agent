@@ -324,6 +324,9 @@ def project_state(project_id: str, request: Request) -> dict:
         "stage_label": info["stage_label"] if info else None,
         "payload": info["payload"] if info else None,
         "current_stage": values.get("current_stage"),
+        # 章节级待确认的定位字段：分卷卡"待确认"条与新建章节页确认卡都按卷过滤
+        "current_volume": values.get("current_volume"),
+        "current_chapter": values.get("current_chapter"),
     }
 
 
